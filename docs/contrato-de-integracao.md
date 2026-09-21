@@ -6,8 +6,8 @@ Regras que todo módulo precisa cumprir para funcionar dentro da plataforma: com
 
 | | |
 |---|---|
-| Versão | 0.6 |
-| Situação | v0.5 ratificada por 4 de 8 · v0.6 em ratificação |
+| Versão | 0.7 |
+| Situação | v0.5 ratificada por 4 de 8 · v0.6 e v0.7 em ratificação |
 | Vinculado a | 8 grupos |
 | Fonte de requisitos | Prompt Mestre, seções 84–92 |
 
@@ -16,6 +16,14 @@ Regras que todo módulo precisa cumprir para funcionar dentro da plataforma: com
 > As quatro decisões estruturais — iframe, schema por grupo, `tenant_id` desde a primeira migration e dono único de Empresas e Contatos — foram aceitas sem objeção pelos grupos abaixo. Os demais ainda não se manifestaram. As seções 4, 6, 7 e 10 já podem ser seguidas; mudá-las depois custa retrabalho de migration em todos os módulos.
 >
 > ✓ CRM · ✓ Financeiro · ✓ Produtos e Serviços · ✓ Plataforma<br> ⋯ Contratos · ⋯ Chamados · ⋯ Marketing · ⋯ Landing Pages
+
+> **O que a versão 0.7 acrescenta · ratificada pela aprovação do pull request pelos gestores**
+>
+> - **Busca global**: formato único de resposta, com no máximo cinco resultados e rota relativa ao módulo — §8.6.
+> - **Valores monetários e percentuais** num formato só, sem arredondamento silencioso — §8.7.
+> - **Download de arquivo** como única exceção ao envelope — §8.2.
+> - **Rota relativa ao módulo** em `modulo:navegar`, com o exemplo corrigido — §12.2.
+> - **Este contrato passa a viver no repositório**, e uma versão nova é um *pull request* — §13.2.
 
 > **O que a versão 0.6 acrescenta · precisa de nova ratificação dos oito grupos**
 >
@@ -397,6 +405,26 @@ Em caso de erro, `message` traz o texto que pode ser mostrado ao usuário e `err
 }
 ```
 
+**A exceção: download de arquivo.** Um arquivo — relatório em PDF, XLSX ou CSV — não cabe dentro de um JSON. A rota que o devolve responde `200` com o próprio arquivo:
+
+```
+GET /api/chamados/relatorios/sla/exportar?formato=xlsx&de=2026-09-01&ate=2026-09-30
+
+  →  200  Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+          Content-Disposition: attachment; filename="sla-2026-09.xlsx"
+          (o arquivo)
+```
+
+> **DEVE**
+>
+> Só o sucesso sai do envelope. Os erros da mesma rota — `400`, `401`, `403`, `404` — continuam no envelope, para a tela mostrar a mensagem como em qualquer outra chamada.
+>
+> No OpenAPI, a resposta `200` declara o tipo do arquivo no lugar de `application/json`.
+
+> **NÃO DEVE**
+>
+> Colocar o token na URL para o navegador baixar direto. URL vai para log e histórico. O front chama a rota com `fetch`, com o token no cabeçalho, e salva o `blob` recebido.
+
 ### 8.3 Listagem paginada
 
 ```
@@ -433,6 +461,52 @@ Repare no `404`: registro de outro tenant responde “não existe”, nunca `403
 > **DEVE**
 >
 > Todo módulo expõe `GET /api/{modulo}/health`, sem exigir token, respondendo `200` quando o serviço está de pé e conectado ao banco. É o que a casca usa para avisar “módulo indisponível” em vez de mostrar tela branca.
+
+### 8.6 Busca global
+
+A seção 79 do Prompt Mestre pede uma caixa de busca no topo que encontre empresa, proposta, contrato, cobrança e chamado. A casca faz a interface: consulta todos os módulos em paralelo e mostra os resultados agrupados por módulo. Cada módulo responde pelo que é dele.
+
+```
+GET /api/chamados/busca?q=servidor
+
+  →  200  { "success": true,
+            "data": [
+              { "id":        "5c2d9e1a-...",
+                "titulo":    "#1042 — Servidor de arquivos inacessível",
+                "subtitulo": "Em atendimento · Centinela Soluções",
+                "rota":      "/chamados/5c2d9e1a-..." }
+            ],
+            "message": null, "errors": [] }
+```
+
+> **DEVE**
+>
+> Todo módulo com registro que o usuário procura pelo nome ou pelo número expõe `GET /api/{modulo}/busca?q=`, com `q` de pelo menos dois caracteres, e responde neste formato: `id`, `titulo`, `subtitulo` e `rota`, no máximo cinco itens, sem paginação.
+>
+> `rota` é relativa ao `urlFrontend` do módulo, sem o código: `/chamados/5c2d…`, e não `/modulos/chamados/chamados/5c2d…`. A casca abre o módulo nessa rota.
+>
+> A busca respeita a permissão e o tenant do token, como qualquer listagem.
+
+A casca aplica o *timeout* da seção 9.6 a cada módulo. Módulo fora do ar, que responde `403` ou que demora simplesmente não aparece no resultado — a busca nunca falha inteira por causa de um deles.
+
+### 8.7 Valores monetários e percentuais
+
+Dinheiro, desconto, comissão e juros passam de um módulo para outro o tempo todo: o preço do catálogo vira item de contrato, que vira cobrança. Um formato diferente em cada módulo é conta errada em algum lugar do caminho.
+
+| Tipo | No JSON | No Java | No banco |
+|---|---|---|---|
+| Dinheiro | número com até 2 casas: `1890.00` | `BigDecimal` | `numeric(15,2)` |
+| Percentual | número em pontos percentuais, até 4 casas: `12.5` significa 12,5% | `BigDecimal` | `numeric(9,4)` |
+
+> **DEVE**
+>
+> A moeda é o real em todo o sistema, e nenhum campo de moeda é necessário no semestre.
+>
+> Valor com mais casas do que o tipo permite responde `400`, com `codigo: PRECISAO_EXCEDIDA` em `errors`. O servidor nunca arredonda em silêncio.
+
+> **NÃO DEVE**
+>
+> Usar `double` ou `float` para dinheiro, nem representar percentual como fração (`0.125`).
 
 ## 9. Comunicação entre módulos
 
@@ -806,10 +880,12 @@ Cada grupo entrega sua própria aplicação React, com build e container própri
 ```
 { tipo: "modulo:pronto" }                        // carregou, pode enviar a sessão
 { tipo: "modulo:altura",  altura: 1840 }         // a cada mudança de conteúdo
-{ tipo: "modulo:navegar", rota: "/crm/oportunidades/9f1c" }
+{ tipo: "modulo:navegar", rota: "/oportunidades/9f1c" }  // mudou de tela por dentro
 { tipo: "modulo:token-expirado" }                // casca renova e reenvia
 { tipo: "modulo:notificar", nivel: "sucesso", texto: "Oportunidade salva." }
 ```
+
+A `rota` de `modulo:navegar` é relativa ao `urlFrontend` do módulo, sem o código — a mesma regra da busca global (seção 8.6). Com ela, a casca atualiza a própria URL para `/app/crm/oportunidades/9f1c`, e recarregar a página ou usar o botão voltar reabre a mesma tela.
 
 > **DEVE**
 >
@@ -940,10 +1016,12 @@ Cada grupo tem o seu repositório. O Grupo 2 mantém dois: um com o próprio có
 | Repositório | Conteúdo |
 |---|---|
 | `plataforma-integrador-2026-2` | identity, gateway e casca |
-| `infra-integrador-2026` | `docker-compose.yml` do sistema inteiro · `db/init/` com schemas e usuários · `rabbitmq/` com usuários e permissões · `contratos/` com OpenAPI, AsyncAPI e *views* de cada módulo · `modulos/` com o JSON de registro · `ui/` com o *preset* visual · `exemplo-modulo/` para copiar |
+| `infra-integrador-2026` | `docker-compose.yml` do sistema inteiro · `db/init/` com schemas e usuários · `rabbitmq/` com usuários e permissões · `contratos/` com OpenAPI, AsyncAPI e *views* de cada módulo · `modulos/` com o JSON de registro · `ui/` com o *preset* visual · `exemplo-modulo/` para copiar · `docs/` com este contrato e o Mapa de Fronteiras |
 | um por grupo | o módulo: back-end, front-end, migrations e testes |
 
 Alterações em `infra-integrador-2026` entram por *pull request*: cada grupo propõe o próprio contrato, o próprio JSON de registro e o próprio usuário de banco, e o Grupo 2 revisa. É assim que o repositório comum continua sendo de todos sem que ninguém altere o contrato alheio.
+
+Este contrato também vive ali, em `docs/contrato-de-integracao.md`, e segue o mesmo caminho. Uma versão nova é um *pull request*, e passa a valer quando os gestores dos grupos o aprovam: a aprovação no GitHub é a ratificação, e o histórico mostra exatamente o que mudou de uma versão para outra.
 
 ### 13.3 Portas e credenciais
 
@@ -1088,13 +1166,14 @@ Pontos em aberto que afetam mais de um grupo. Estão listados aqui de propósito
 
 | Pendência | Afeta | Situação |
 |---|---|---|
-| Ratificação da versão 0.6 | Todos | Levar aos oito grupos de uma vez, incluindo os quatro que não se manifestaram sobre a 0.5. |
+| Ratificação das versões 0.6 e 0.7 | Todos | Pela aprovação do *pull request* da versão 0.7 no `infra-integrador-2026`, incluindo os quatro grupos que não se manifestaram sobre a 0.5. |
 | Equipes no token (5.4) | CRM e quem filtrar por equipe | Proposta da plataforma, a confirmar com o CRM. |
 | Prazo das listas de permissões, OpenAPI e AsyncAPI | Todos | A combinar no grupo de gestores. |
 | Provedor de e-mail fora do ambiente de desenvolvimento | Plataforma, Financeiro, Marketing | A plataforma envia o e-mail de sistema, pedido por `identity.email.enviar`; o provedor SMTP de *staging* e produção depende dos professores. |
 | Onde roda o *staging*, agora com RabbitMQ | Todos | A definir com os professores até a semana 6. |
-| Busca global (seção 79 do Prompt Mestre) | Todos | Proposta mantida: a casca faz a interface; cada módulo expõe `GET /api/{modulo}/busca?q=`. |
 | Anexos e documentos (seções 95 e 96) | Contratos, Chamados, Financeiro, CRM | Proposta mantida: serviço genérico no módulo Contratos e Documentos; os outros referenciam por UUID. |
+
+Resolvidos na versão 0.7: busca global, com formato único de resposta (seção 8.6).
 
 Resolvidos na versão 0.6: acesso a dados de outro módulo, por API ou *view* pública (seção 9.8), e comunicação de eventos, pelo RabbitMQ (seção 9.7). Timeline e notificações passam a chegar à plataforma por mensagem, na exchange `identity.entrada`.
 
@@ -1130,7 +1209,6 @@ Assim o Grupo 3 constrói relatórios sem depender de sete serviços estarem no 
 
 ---
 
-Contrato de Integração dos Módulos · versão 0.6 · 14 de setembro de 2026 · versão 0.5 ratificada por 4 de 8 grupos  
+Contrato de Integração dos Módulos · versão 0.7 · 21 de setembro de 2026 · versão 0.5 ratificada por 4 de 8 grupos  
 Grupo 2 — Plataforma e Controle de Usuários · Projeto Integrador 2026  
-Requisitos derivados do Prompt Mestre do cliente, seções 3, 84 a 92, 105 e 116.  
-Correção em 21 de setembro de 2026: comando do Prism na seção 14.2 (`-m false`).
+Requisitos derivados do Prompt Mestre do cliente, seções 3, 79, 84 a 92, 105 e 116.
