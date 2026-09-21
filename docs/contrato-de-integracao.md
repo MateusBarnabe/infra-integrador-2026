@@ -7,7 +7,7 @@ Regras que todo módulo precisa cumprir para funcionar dentro da plataforma: com
 | | |
 |---|---|
 | Versão | 0.7 |
-| Situação | v0.5 ratificada por 4 de 8 · v0.6 e v0.7 em ratificação |
+| Situação | v0.5 ratificada por 4 de 8 · v0.6 e v0.7 em prazo de objeção |
 | Vinculado a | 8 grupos |
 | Fonte de requisitos | Prompt Mestre, seções 84–92 |
 
@@ -17,7 +17,7 @@ Regras que todo módulo precisa cumprir para funcionar dentro da plataforma: com
 >
 > ✓ CRM · ✓ Financeiro · ✓ Produtos e Serviços · ✓ Plataforma<br> ⋯ Contratos · ⋯ Chamados · ⋯ Marketing · ⋯ Landing Pages
 
-> **O que a versão 0.7 acrescenta · ratificada pela aprovação do pull request pelos gestores**
+> **O que a versão 0.7 acrescenta · vale se não houver objeção até o prazo anunciado no grupo de gestores**
 >
 > - **Busca global**: formato único de resposta, com no máximo cinco resultados e rota relativa ao módulo — §8.6.
 > - **Valores monetários e percentuais** num formato só, sem arredondamento silencioso — §8.7.
@@ -1021,7 +1021,12 @@ Cada grupo tem o seu repositório. O Grupo 2 mantém dois: um com o próprio có
 
 Alterações em `infra-integrador-2026` entram por *pull request*: cada grupo propõe o próprio contrato, o próprio JSON de registro e o próprio usuário de banco, e o Grupo 2 revisa. É assim que o repositório comum continua sendo de todos sem que ninguém altere o contrato alheio.
 
-Este contrato também vive ali, em `docs/contrato-de-integracao.md`, e segue o mesmo caminho. Uma versão nova é um *pull request*, e passa a valer quando os gestores dos grupos o aprovam: a aprovação no GitHub é a ratificação, e o histórico mostra exatamente o que mudou de uma versão para outra.
+Este contrato também vive ali, em `docs/contrato-de-integracao.md`, e é mantido pelo Grupo 2. Uma versão nova é um *pull request*, anunciado no grupo de gestores com um prazo para objeções:
+
+- quem discorda comenta no próprio PR, na linha da regra. O ponto contestado é discutido ali e ajustado ou retirado antes do merge;
+- sem objeção até o prazo, o Grupo 2 faz o merge, e a versão passa a valer para todos os grupos.
+
+Aprovar o PR é bem-vindo, mas não obrigatório: o silêncio até o prazo conta como aceite, como aconteceu com a versão 0.5. O histórico do Git mostra exatamente o que mudou de uma versão para outra.
 
 ### 13.3 Portas e credenciais
 
@@ -1166,7 +1171,7 @@ Pontos em aberto que afetam mais de um grupo. Estão listados aqui de propósito
 
 | Pendência | Afeta | Situação |
 |---|---|---|
-| Ratificação das versões 0.6 e 0.7 | Todos | Pela aprovação do *pull request* da versão 0.7 no `infra-integrador-2026`, incluindo os quatro grupos que não se manifestaram sobre a 0.5. |
+| Ratificação das versões 0.6 e 0.7 | Todos | Pelo *pull request* da versão 0.7 no `infra-integrador-2026`, com prazo para objeções (seção 13.2). Vale também para os quatro grupos que não se manifestaram sobre a 0.5. |
 | Equipes no token (5.4) | CRM e quem filtrar por equipe | Proposta da plataforma, a confirmar com o CRM. |
 | Prazo das listas de permissões, OpenAPI e AsyncAPI | Todos | A combinar no grupo de gestores. |
 | Provedor de e-mail fora do ambiente de desenvolvimento | Plataforma, Financeiro, Marketing | A plataforma envia o e-mail de sistema, pedido por `identity.email.enviar`; o provedor SMTP de *staging* e produção depende dos professores. |
