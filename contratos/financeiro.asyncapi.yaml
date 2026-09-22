@@ -1,0 +1,69 @@
+asyncapi: 2.6.0
+info:
+  title: Financeiro — Eventos
+  version: 0.1.0
+  description: >
+    Eventos publicados pelo módulo Financeiro na exchange própria do RabbitMQ
+    (usuário mq_financeiro), conforme o padrão de mensageria entre módulos do
+    Contrato de Integração. Publicados sempre depois do commit da transação.
+
+servers:
+  rabbitmq:
+    url: rabbitmq:5672
+    protocol: amqp
+    description: Broker compartilhado (vhost `plataforma`)
+
+channels:
+  financeiro.cobranca.criada:
+    description: Publicado quando uma cobrança é lançada (avulsa ou por recorrência).
+    publish:
+      message:
+        $ref: '#/components/messages/CobrancaCriada'
+
+  financeiro.pagamento.confirmado:
+    description: Publicado quando um webhook de pagamento é processado com sucesso.
+    publish:
+      message:
+        $ref: '#/components/messages/PagamentoEvento'
+
+  financeiro.pagamento.atrasado:
+    description: Publicado pelo job da régua de cobrança quando uma cobrança vence sem pagamento.
+    publish:
+      message:
+        $ref: '#/components/messages/PagamentoEvento'
+
+  financeiro.pagamento.falhou:
+    description: Publicado quando o provedor rejeita ou estorna um pagamento.
+    publish:
+      message:
+        $ref: '#/components/messages/PagamentoEvento'
+
+components:
+  messages:
+    CobrancaCriada:
+      name: financeiro.cobranca.criada
+      contentType: application/json
+      payload:
+        type: object
+        required: [cobrancaId, tenantId, clienteId, valor, vencimento]
+        properties:
+          cobrancaId: { type: string, format: uuid }
+          tenantId: { type: string, format: uuid }
+          clienteId: { type: string, format: uuid }
+          contratoId: { type: [string, 'null'], format: uuid }
+          valor: { type: number, multipleOf: 0.01 }
+          vencimento: { type: string, format: date }
+
+    PagamentoEvento:
+      name: financeiro.pagamento.evento
+      contentType: application/json
+      payload:
+        type: object
+        required: [cobrancaId, tenantId, clienteId, status]
+        properties:
+          cobrancaId: { type: string, format: uuid }
+          tenantId: { type: string, format: uuid }
+          clienteId: { type: string, format: uuid }
+          status: { type: string, enum: [PAGO, ATRASADO, FALHOU] }
+          valorPago: { type: [number, 'null'], multipleOf: 0.01 }
+          dataEvento: { type: string, format: date-time }
