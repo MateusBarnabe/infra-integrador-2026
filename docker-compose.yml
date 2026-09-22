@@ -28,6 +28,8 @@ x-env-modulo: &env-modulo
   RABBITMQ_VHOST: ${RABBITMQ_VHOST}
   JWKS_URI: http://identity:8081/api/identity/.well-known/jwks.json
   IDENTITY_BASE_URL: http://identity:8081
+  # Log estruturado do Spring Boot 3.4+, uma linha JSON por evento, com o requestId (RNF04)
+  LOGGING_STRUCTURED_FORMAT_CONSOLE: ${LOG_FORMATO:-ecs}
 
 services:
 
@@ -101,6 +103,7 @@ services:
       PLATAFORMA_URL: ${PLATAFORMA_URL:-http://localhost:8080}
       ADMIN_INICIAL_EMAIL: ${ADMIN_INICIAL_EMAIL:-}
       ADMIN_INICIAL_NOME: ${ADMIN_INICIAL_NOME:-}
+      IDENTITY_EXIGIR_USER_ID: ${IDENTITY_EXIGIR_USER_ID:-true}
       DB_APP_USER: usr_identity
       DB_APP_PASSWORD: ${DB_APP_IDENTITY_SENHA}
       DB_OWNER_USER: own_identity
@@ -129,6 +132,8 @@ services:
       SERVER_PORT: "8080"
       JWKS_URI: http://identity:8081/api/identity/.well-known/jwks.json
       CORS_ORIGENS: ${CORS_ORIGENS:-}
+      LIMITE_PUBLICO_POR_MINUTO: ${LIMITE_PUBLICO_POR_MINUTO:-120}
+      LOGGING_STRUCTURED_FORMAT_CONSOLE: ${LOG_FORMATO:-ecs}
       ROTA_CASCA: http://casca:3000
       ROTA_IDENTITY_API: http://identity:8081
       ROTA_CRM_API: http://crm:8082

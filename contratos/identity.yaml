@@ -1,24 +1,30 @@
 openapi: 3.1.0
 info:
   title: Identity — Plataforma e Controle de Usuários
-  version: 0.2.0
+  version: 0.3.0
   summary: Endpoints do serviço de identidade consumidos pela casca e pelos outros módulos.
   description: |
-    Contrato das ondas 1 e 2 do Grupo 2. As regras gerais estão no Contrato de Integração:
+    Contrato das ondas 1, 2 e 3 do Grupo 2. As regras gerais estão no Contrato de Integração:
     autenticação (§4), autorização e equipes (§5), API (§8) e comunicação entre módulos (§9).
 
     A onda 2 acrescenta convite e recuperação de senha, troca de senha, sessões ativas,
     "minha conta" e a administração de usuários, perfis e equipes. Essas rotas de administração
     existem para a casca; os módulos continuam lendo tudo do token (Contrato §5.2).
 
+    A onda 3 acrescenta as notificações do usuário (RF54), a consulta e a exportação da
+    auditoria (RF50), o fim da sessão na resposta de login e renovação (RF41) e o resolver de
+    tenant por subdomínio para a superfície pública (RF31).
+
     Códigos de regra de negócio (422) e de conflito (409) vêm em `errors[].codigo`:
     `EMAIL_EM_USO`, `NOME_EM_USO`, `SENHA_FRACA`, `SENHA_ATUAL_INCORRETA`, `LINK_INVALIDO`,
     `AUTOPROTECAO`, `ULTIMO_ADMINISTRADOR`, `PERMISSAO_NAO_CONCEDIVEL`, `PERFIL_INEXISTENTE`,
     `EQUIPE_INEXISTENTE`, `USUARIO_INEXISTENTE`, `PERMISSAO_INEXISTENTE`, `PERFIL_DE_SISTEMA`,
-    `PERFIL_EM_USO`, `USUARIO_INATIVO`, `CONVITE_DESNECESSARIO`.
+    `PERFIL_EM_USO`, `USUARIO_INATIVO`, `CONVITE_DESNECESSARIO`, `PERIODO_INVALIDO`,
+    `LIMITE_DE_EXPORTACAO`.
 
-    Toda resposta usa o envelope `{ success, data, message, errors }`, com uma exceção:
-    o JWKS segue o formato padrão da RFC 7517, para que o Spring o leia sem configuração.
+    Toda resposta usa o envelope `{ success, data, message, errors }`, com duas exceções:
+    o JWKS segue o formato padrão da RFC 7517, para que o Spring o leia sem configuração, e o
+    sucesso da exportação da auditoria é o próprio arquivo CSV (Contrato §8.2).
 
     Este serviço **não** pode ser substituído por stub gerado deste arquivo: um JWT de
     exemplo não tem assinatura válida. Em desenvolvimento, use a imagem real do identity com
@@ -53,6 +59,10 @@ tags:
     description: Chave pública para validar o JWT
   - name: plataforma
     description: Registro de módulos, equipes e timeline
+  - name: notificacoes
+    description: Notificações do próprio usuário (casca)
+  - name: auditoria
+    description: Consulta e exportação da auditoria de acesso (casca)
   - name: saude
     description: Estado do serviço
 
@@ -962,6 +972,210 @@ paths:
         '401': { $ref: '#/components/responses/NaoAutenticado' }
         '403': { $ref: '#/components/responses/SemPermissao' }
 
+  # ---------------------------------------------------------------- onda 3: notificações
+
+  /api/identity/notificacoes:
+    get:
+      tags: [notificacoes]
+      operationId: listarNotificacoes
+      summary: Notificações do usuário do token, da mais recente para a mais antiga
+      description: |
+        Só as do próprio usuário, no tenant do token (RF54). Token de serviço responde 403.
+        As notificações chegam pela mensagem `identity.notificacao.criar` (identity.asyncapi.yaml).
+      parameters:
+        - name: naoLidas
+          in: query
+          description: Só as ainda não lidas
+          schema: { type: boolean, default: false }
+        - $ref: '#/components/parameters/Pagina'
+        - $ref: '#/components/parameters/Tamanho'
+      responses:
+        '200':
+          description: Página de notificações
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - properties:
+                      data:
+                        allOf:
+                          - $ref: '#/components/schemas/Pagina'
+                          - properties:
+                              itens:
+                                type: array
+                                items: { $ref: '#/components/schemas/Notificacao' }
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+        '403': { $ref: '#/components/responses/SemPermissao' }
+
+  /api/identity/notificacoes/contagem:
+    get:
+      tags: [notificacoes]
+      operationId: contarNotificacoesNaoLidas
+      summary: Quantas notificações o usuário ainda não leu
+      description: Consulta leve, feita pela casca a cada 30 segundos para o contador do sino.
+      responses:
+        '200':
+          description: Contagem
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - properties:
+                      data: { $ref: '#/components/schemas/ContagemDeNotificacoes' }
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+        '403': { $ref: '#/components/responses/SemPermissao' }
+
+  /api/identity/notificacoes/{id}/lida:
+    post:
+      tags: [notificacoes]
+      operationId: marcarNotificacaoComoLida
+      summary: Marcar uma notificação como lida
+      description: Idempotente — marcar de novo não muda a data da primeira leitura. Notificação de outro usuário responde 404.
+      parameters:
+        - $ref: '#/components/parameters/IdNoCaminho'
+      responses:
+        '200':
+          description: Marcada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Envelope' }
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+        '403': { $ref: '#/components/responses/SemPermissao' }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+
+  /api/identity/notificacoes/lidas:
+    post:
+      tags: [notificacoes]
+      operationId: marcarTodasComoLidas
+      summary: Marcar todas as notificações do usuário como lidas
+      responses:
+        '200':
+          description: Quantas foram marcadas agora
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - properties:
+                      data:
+                        type: object
+                        required: [marcadas]
+                        properties:
+                          marcadas: { type: integer, example: 3 }
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+        '403': { $ref: '#/components/responses/SemPermissao' }
+
+  # ---------------------------------------------------------------- onda 3: auditoria
+
+  /api/identity/auditoria:
+    get:
+      tags: [auditoria]
+      operationId: consultarAuditoria
+      summary: Registros de auditoria do tenant, do mais recente para o mais antigo
+      description: |
+        Exige `identity.auditoria.ver` (RF50). Só registros do tenant do token: tentativas com
+        e-mail inexistente e emissões de token de serviço não têm tenant e ficam fora da consulta.
+        Para responder "quem deu esta permissão a este usuário, e quando" (RF26), filtre
+        `entidade=usuario_perfis` e `entidadeId` com o id do usuário.
+      parameters:
+        - $ref: '#/components/parameters/FiltroAuditoriaUsuario'
+        - $ref: '#/components/parameters/FiltroAuditoriaAcao'
+        - $ref: '#/components/parameters/FiltroAuditoriaEntidade'
+        - $ref: '#/components/parameters/FiltroAuditoriaEntidadeId'
+        - $ref: '#/components/parameters/FiltroAuditoriaDe'
+        - $ref: '#/components/parameters/FiltroAuditoriaAte'
+        - $ref: '#/components/parameters/Pagina'
+        - $ref: '#/components/parameters/Tamanho'
+      responses:
+        '200':
+          description: Página da auditoria
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - properties:
+                      data:
+                        allOf:
+                          - $ref: '#/components/schemas/Pagina'
+                          - properties:
+                              itens:
+                                type: array
+                                items: { $ref: '#/components/schemas/RegistroDeAuditoria' }
+        '400': { $ref: '#/components/responses/DadosInvalidos' }
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+        '403': { $ref: '#/components/responses/SemPermissao' }
+
+  /api/identity/auditoria/exportar:
+    get:
+      tags: [auditoria]
+      operationId: exportarAuditoria
+      summary: Exportar em CSV o resultado dos mesmos filtros da consulta
+      description: |
+        Exige `identity.auditoria.exportar`. O sucesso é o próprio arquivo, fora do envelope
+        (Contrato §8.2): UTF-8 com BOM, separador `;`, uma linha por registro, no máximo
+        10 000 linhas — acima disso responde 422 `LIMITE_DE_EXPORTACAO` para estreitar o período.
+        Os erros continuam no envelope. A exportação fica registrada na própria auditoria.
+      parameters:
+        - $ref: '#/components/parameters/FiltroAuditoriaUsuario'
+        - $ref: '#/components/parameters/FiltroAuditoriaAcao'
+        - $ref: '#/components/parameters/FiltroAuditoriaEntidade'
+        - $ref: '#/components/parameters/FiltroAuditoriaEntidadeId'
+        - $ref: '#/components/parameters/FiltroAuditoriaDe'
+        - $ref: '#/components/parameters/FiltroAuditoriaAte'
+      responses:
+        '200':
+          description: Arquivo CSV
+          headers:
+            Content-Disposition:
+              schema: { type: string, example: 'attachment; filename="auditoria-2026-09-22.csv"' }
+          content:
+            text/csv:
+              schema:
+                type: string
+                example: |
+                  ocorridoEm;usuario;usuarioId;ip;acao;entidade;entidadeId;valorAnterior;valorNovo
+                  2026-09-22T14:03:11Z;Administrador da Empresa A;9f1c…;203.0.113.7;alterar;usuario_perfis;7b1e…;{"perfis":["VENDEDOR"]};{"perfis":["VENDEDOR","GESTOR"]}
+        '400': { $ref: '#/components/responses/DadosInvalidos' }
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+        '403': { $ref: '#/components/responses/SemPermissao' }
+        '422': { $ref: '#/components/responses/RegraDeNegocio' }
+
+  # ---------------------------------------------------------------- onda 3: superfície pública
+
+  /api/identity/tenants/resolver:
+    get:
+      tags: [servico]
+      operationId: resolverTenantPorSubdominio
+      summary: Descobrir o tenant de uma página pública pelo subdomínio
+      description: |
+        Para a superfície pública (RF31, Contrato §12.6): o módulo que serve a página recebe o
+        subdomínio do endereço acessado e pergunta aqui a qual tenant ele pertence, com o
+        próprio token de serviço. Exige `identity.tenant.ver`, concedida por `servicos` no
+        catálogo. Subdomínio desconhecido ou tenant inativo responde 404. Quem resolve pelo
+        *slug* da página é o próprio módulo dono dela.
+      parameters:
+        - name: subdominio
+          in: query
+          required: true
+          schema: { type: string, pattern: '^[a-z0-9-]{1,63}$', example: centinela }
+      responses:
+        '200':
+          description: Tenant ativo com esse subdomínio
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - properties:
+                      data: { $ref: '#/components/schemas/TenantResolvido' }
+        '400': { $ref: '#/components/responses/DadosInvalidos' }
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+        '403': { $ref: '#/components/responses/SemPermissao' }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+
   /api/identity/health:
     get:
       tags: [saude]
@@ -1009,6 +1223,34 @@ components:
       name: tamanho
       in: query
       schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+    FiltroAuditoriaUsuario:
+      name: usuarioId
+      in: query
+      description: Quem agiu
+      schema: { type: string, format: uuid }
+    FiltroAuditoriaAcao:
+      name: acao
+      in: query
+      schema: { $ref: '#/components/schemas/AcaoAuditada' }
+    FiltroAuditoriaEntidade:
+      name: entidade
+      in: query
+      schema: { $ref: '#/components/schemas/EntidadeAuditada' }
+    FiltroAuditoriaEntidadeId:
+      name: entidadeId
+      in: query
+      description: O registro afetado
+      schema: { type: string, format: uuid }
+    FiltroAuditoriaDe:
+      name: de
+      in: query
+      description: Início do período, inclusive
+      schema: { type: string, format: date-time, example: '2026-09-01T00:00:00-03:00' }
+    FiltroAuditoriaAte:
+      name: ate
+      in: query
+      description: Fim do período, exclusive. Antes de `de` responde 400 `PERIODO_INVALIDO`.
+      schema: { type: string, format: date-time, example: '2026-10-01T00:00:00-03:00' }
 
   responses:
     DadosInvalidos:
@@ -1125,10 +1367,16 @@ components:
 
     SessaoAberta:
       type: object
-      required: [accessToken, expiraEmSegundos, usuario]
+      required: [accessToken, expiraEmSegundos, sessaoExpiraEm, usuario]
       properties:
         accessToken: { type: string, example: eyJhbGciOiJSUzI1NiIsImtpZCI6ImRldi0yMDI2In0... }
         expiraEmSegundos: { type: integer, example: 900 }
+        sessaoExpiraEm:
+          type: string
+          format: date-time
+          description: |
+            Fim da sessão, oito horas depois do login; a renovação não o adia. A casca avisa antes
+            e pede a senha de novo sem sair da tela (RF41).
         usuario: { $ref: '#/components/schemas/Usuario' }
 
     Eu:
@@ -1470,6 +1718,73 @@ components:
           type: array
           uniqueItems: true
           items: { type: string }
+
+    # ---------------------------------------------------------------- onda 3
+
+    Notificacao:
+      type: object
+      required: [id, categoria, titulo, lida, criadaEm]
+      properties:
+        id: { type: string, format: uuid }
+        categoria: { type: string, example: COBRANCA_VENCIDA, description: Uma das categorias de DadosNotificacao (identity.asyncapi.yaml) }
+        titulo: { type: string, example: Cobrança CB-0198 venceu }
+        texto: { type: [string, 'null'], example: 'Cliente Alfa Engenharia, R$ 4.200,00' }
+        moduloOrigem: { type: [string, 'null'], example: financeiro, description: Nulo nas notificações gravadas antes da onda 3 }
+        rota:
+          type: [string, 'null']
+          example: /cobrancas/7b1e
+          description: Relativa ao front do módulo de origem, sem o código (Contrato §12.2); a casca abre `/app/{moduloOrigem}{rota}`.
+        lida: { type: boolean }
+        criadaEm: { type: string, format: date-time }
+
+    ContagemDeNotificacoes:
+      type: object
+      required: [naoLidas]
+      properties:
+        naoLidas: { type: integer, example: 3 }
+
+    AcaoAuditada:
+      type: string
+      description: Ações que o identity registra hoje; a lista cresce com novas funcionalidades.
+      enum: [login, login_falhou, login_bloqueado, logout, refresh_reutilizado, encerrar_sessao,
+             encerrar_outras_sessoes, token_servico, token_servico_recusado, acesso_negado,
+             recuperacao_solicitada, recuperacao_ignorada, definir_senha, trocar_senha,
+             trocar_senha_recusada, criar, editar, excluir, alterar, convidar, desativar, reativar,
+             exportar]
+
+    EntidadeAuditada:
+      type: string
+      enum: [sessao, credencial_servico, senha, usuario, usuario_perfis, usuario_equipes, perfil,
+             perfil_permissoes, equipe, equipe_membros, rota, auditoria]
+
+    RegistroDeAuditoria:
+      type: object
+      required: [id, ocorridoEm, acao, entidade]
+      properties:
+        id: { type: string, format: uuid }
+        ocorridoEm: { type: string, format: date-time }
+        usuario:
+          description: Quem agiu; nulo quando não há usuário identificado (ex. link de recuperação)
+          oneOf:
+            - type: 'null'
+            - type: object
+              required: [id, nome]
+              properties:
+                id: { type: string, format: uuid }
+                nome: { type: string, example: Administrador da Empresa A }
+        ip: { type: [string, 'null'], example: 203.0.113.7 }
+        acao: { $ref: '#/components/schemas/AcaoAuditada' }
+        entidade: { $ref: '#/components/schemas/EntidadeAuditada' }
+        entidadeId: { type: [string, 'null'], format: uuid }
+        valorAnterior: { type: [object, 'null'], example: { perfis: [VENDEDOR] } }
+        valorNovo: { type: [object, 'null'], example: { perfis: [VENDEDOR, GESTOR] } }
+
+    TenantResolvido:
+      type: object
+      required: [id, nome]
+      properties:
+        id: { type: string, format: uuid, example: 00000000-0000-4000-8000-000000000001 }
+        nome: { type: string, example: Centinela Soluções, description: 'Nome fantasia, ou a razão social se não houver' }
 
     EquipeResumo:
       type: object

@@ -82,8 +82,13 @@ O `docker-compose.yml` entrega a todo back-end de módulo as mesmas variáveis. 
 | `JWKS_URI` | `http://identity:8081/api/identity/.well-known/jwks.json` | Validar o token |
 | `IDENTITY_BASE_URL` | `http://identity:8081` | Pedir token de serviço |
 | `SVC_CLIENT_ID` / `SVC_CLIENT_SECRET` | `crm` | Credencial do token de serviço |
+| `LOGGING_STRUCTURED_FORMAT_CONSOLE` | `ecs` | Log em JSON, com o `requestId` do MDC (vem de `LOG_FORMATO`) |
 
 O front recebe só `PORTA`.
+
+Toda mensagem publicada no RabbitMQ leva a propriedade `user_id` com o `RABBITMQ_USER` — sem ela, o
+identity recusa os pedidos de timeline, notificação e e-mail (Contrato §9.7). O exemplo faz isso num
+`RabbitTemplateCustomizer`.
 
 ## Como o seu grupo entra
 
@@ -108,6 +113,7 @@ Enquanto o identity não estiver publicado, desenvolva contra os contratos com o
 | Migrations com o dono, aplicação sem poder alterar estrutura (§7.1) | `own_{modulo}` e `usr_{modulo}` |
 | Leitura cruzada só por *view* pública (§9.8) | `GRANT SELECT` só na *view*, feito pela migration do dono |
 | Cada módulo publica só na própria exchange (§9.7) | Permissões do `mq_{modulo}` no RabbitMQ |
+| Ninguém pede nada à plataforma em nome de outro módulo (§9.7) | `user_id` conferido pelo RabbitMQ e pelo identity |
 | Contratos e registros no formato certo | Workflow `Validar` em todo pull request |
 
 ## Documentos
@@ -116,6 +122,8 @@ Enquanto o identity não estiver publicado, desenvolva contra os contratos com o
   módulo segue
 - [Mapa de Fronteiras](docs/mapa-de-fronteiras.md) — o que é de cada grupo, o que é
   compartilhado e o que ainda não tem dono
+- [Manual de implantação](docs/manual-de-implantacao.md) — ambientes, variáveis, subida só com
+  imagens publicadas, logs, métricas e cópia de segurança
 
 Estes dois arquivos são a versão oficial. Qualquer mudança entra por *pull request* e vale
 depois que os gestores dos grupos aprovam o PR — é assim que uma versão nova do Contrato é
