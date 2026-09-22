@@ -45,6 +45,7 @@ jobs:
           for arquivo in permissoes/*.yaml; do
             npx --yes ajv-cli@5 validate -s permissoes/schema.json -d "$arquivo"
           done
+          npx --yes -p yaml node scripts/validar-coerencia.mjs
 
   exemplo-api:
     runs-on: ubuntu-latest
