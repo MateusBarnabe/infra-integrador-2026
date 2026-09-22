@@ -24,6 +24,11 @@ Regras que todo módulo precisa cumprir para funcionar dentro da plataforma: com
 > - **Download de arquivo** como única exceção ao envelope — §8.2.
 > - **Rota relativa ao módulo** em `modulo:navegar`, com o exemplo corrigido — §12.2.
 > - **Este contrato passa a viver no repositório**, e uma versão nova é um *pull request* — §13.2.
+> - **Erro padronizado do gateway** quando o módulo está fora do ar (`503`) ou não responde em 3 segundos (`504`), com o código do módulo em `errors[0]` — §8.4.
+> - **Cabeçalhos que o gateway reescreve**: `X-Forwarded-For` passa a ser só o IP da conexão e `X-Tenant-Id` vindo do navegador é descartado. Por isso token de serviço só funciona na chamada direta entre serviços, nunca pelo gateway — §3 e §9.2.
+> - **`user_id` obrigatório** nas mensagens do RabbitMQ, para um módulo não publicar em nome de outro — §9.7.
+> - **Sessão recebida antes de a tela existir**: o módulo ouve as mensagens da casca antes de enviar `modulo:pronto` e guarda a sessão fora dos componentes. O `App.tsx` do módulo de exemplo perdia a sessão nessa corrida e foi corrigido em 22/09 — quem o copiou antes precisa da correção — §12.2.
+> - **O gateway envia `X-Frame-Options: SAMEORIGIN`**; o front do módulo não pode responder `DENY` nem `frame-ancestors 'none'`, ou não abre dentro da casca — §12.8.
 
 > **O que a versão 0.6 acrescenta · precisa de nova ratificação dos oito grupos**
 >
@@ -129,6 +134,15 @@ O navegador conhece um endereço só: o gateway. Ele nunca fala direto com o ser
 No front, a casca é uma aplicação React servida pelo Grupo 2. Ela renderiza login, barra superior e menu, e embute o front de cada módulo em um `<iframe>` na área de conteúdo. Casca, fronts e APIs saem todos do mesmo endereço, separados por caminho — a seção 12.8 explica por quê.
 
 Atenção a uma assimetria do desenho: o gateway serve ao tráfego que *entra* — o navegador. Um serviço chamando outro serviço vai direto, sem passar por ele, e um fato que interessa a vários módulos viaja pelo RabbitMQ. A seção 9 trata desses dois caminhos.
+
+Por servir ao navegador, o gateway não confia no que ele manda em dois cabeçalhos:
+
+| Cabeçalho | O que o gateway faz | Por quê |
+|---|---|---|
+| `X-Forwarded-For` | substitui pelo IP de quem se conectou a ele | o cliente poderia inventar um IP e escapar do limite de tentativas de login |
+| `X-Tenant-Id` | descarta | só vale com token de serviço, e token de serviço não passa pelo gateway (seção 9.2) |
+
+O gateway também gera um `X-Request-Id` quando a requisição não traz um, repassa ao módulo e o devolve na resposta. O módulo registra esse identificador no log de cada requisição e o repassa nas chamadas que fizer a outros módulos e no `correlacaoId` das mensagens (seção 9.7).
 
 ## 4. Autenticação
 
@@ -453,6 +467,19 @@ GET /api/crm/oportunidades?pagina=0&tamanho=20&ordenar=criadoEm,desc
 | `404` | não existe *ou* pertence a outro tenant |
 | `409` | conflito de regra de negócio (duplicidade, estado inválido) |
 | `422` | bem formado, mas viola regra de negócio |
+| `503` | respondido pelo **gateway**: o módulo está fora do ar |
+| `504` | respondido pelo **gateway**: o módulo não respondeu em 3 segundos |
+
+Os dois últimos vêm do gateway, não do módulo, e trazem no envelope o código do módulo, para a tela dizer qual parte do sistema falhou:
+
+```
+HTTP/1.1 503
+{ "success": false, "data": null,
+  "message": "Módulo crm indisponível.",
+  "errors": [ { "campo": "modulo", "codigo": "MODULO_INDISPONIVEL", "detalhe": "crm" } ] }
+
+// 504: "codigo": "MODULO_SEM_RESPOSTA"
+```
 
 Repare no `404`: registro de outro tenant responde “não existe”, nunca `403`. Um `403` confirmaria ao usuário que o registro existe em outra empresa.
 
@@ -565,6 +592,10 @@ X-Tenant-Id: 3a7e91b0-...
 >
 > Toda chamada com token de serviço é registrada em auditoria, com o `clientId` de origem.
 
+> **NÃO DEVE**
+>
+> Chamar com token de serviço pelo gateway. O gateway descarta o `X-Tenant-Id` que chega por ele (seção 3), e a chamada ficaria sem tenant. Rotina de serviço chama o outro módulo direto, pelo nome do container: `http://crm:8082/api/crm/...`.
+
 ### 9.3 Leitura entre módulos e permissão
 
 Um usuário de perfil **FINANCEIRO** provavelmente não tem `crm.empresa.ver` — mas precisa enxergar a razão social na tela de cobranças. Repassando o token, essa tela legítima receberia `403`.
@@ -663,6 +694,8 @@ financeiro.contrato-assinado.dlq     mensagens que falharam três vezes
 > Todo consumidor é idempotente: grava o `id` do evento em `eventos_processados`, na mesma transação do efeito, e ignora um `id` já visto. O RabbitMQ entrega *pelo menos uma vez* — a mesma mensagem pode chegar duas.
 >
 > Depois de três falhas, a mensagem vai para a fila `.dlq` do consumidor, em vez de voltar à fila para sempre.
+>
+> Publicar com a propriedade AMQP `user_id` igual ao usuário da conexão, `mq_{modulo}`. O RabbitMQ recusa um `user_id` diferente do usuário autenticado, e o consumidor confere que ele corresponde ao `moduloOrigem` — sem isso, qualquer módulo poderia publicar em `identity.entrada` fingindo ser outro. A plataforma manda para a `.dlq` o pedido sem `user_id` ou com `moduloOrigem` de outro módulo. No Spring AMQP, `mensagem.getMessageProperties().setUserId("mq_crm")`; o módulo de exemplo já faz isso.
 >
 > Cada módulo descreve os eventos que publica em `infra-integrador-2026/contratos/{modulo}.asyncapi.yaml`, antes de publicá-los.
 
@@ -890,6 +923,8 @@ A `rota` de `modulo:navegar` é relativa ao `urlFrontend` do módulo, sem o cód
 > **DEVE**
 >
 > Verificar, em toda mensagem recebida e dos dois lados, que `event.origin` é a origem da própria plataforma e que `event.source` é a janela esperada — o `contentWindow` do iframe, na casca; `window.parent`, no módulo. Sem isso, outra página com referência à janela consegue conversar com o iframe.
+>
+> Registrar o ouvinte de `message` antes de enviar `modulo:pronto`, e guardar a sessão recebida fora dos componentes, num objeto que a tela lê ao montar. A casca responde ao `modulo:pronto` na hora: se a tela só se inscreve depois do primeiro *render*, a `plataforma:sessao` chega antes e se perde, e o módulo fica esperando para sempre. Foi o defeito do `App.tsx` do módulo de exemplo, corrigido em 22/09.
 
 > **NÃO DEVE**
 >
@@ -989,6 +1024,10 @@ O ganho é ter **uma origem só**. O cookie do *refresh token* funciona sem conf
 > O front do módulo funciona servido sob `/modulos/{codigo}/`. No Vite, isso é `base: '/modulos/crm/'`; o roteador do React usa o mesmo prefixo.
 >
 > O servidor do front envia `Content-Security-Policy: frame-ancestors 'self'`, para que a página só possa ser embutida pela própria plataforma.
+
+> **NÃO DEVE**
+>
+> Responder `X-Frame-Options: DENY` nem `frame-ancestors 'none'` no front do módulo: a página deixa de abrir dentro da casca. O gateway já envia `X-Frame-Options: SAMEORIGIN` em toda resposta, o que só permite o iframe da própria plataforma.
 
 O custo a registrar: na mesma origem, o iframe isola menos a casca do módulo do que isolaria entre domínios diferentes. É aceitável porque os oito fronts são do mesmo sistema, e o *refresh token* — o que de fato importa proteger — está num cookie que nenhum JavaScript lê.
 
@@ -1161,7 +1200,7 @@ Um módulo está integrado quando passa nos dezenove itens abaixo. O Grupo 2 ver
 14. A imagem Docker é publicada a cada merge na branch principal.
 15. A suíte de testes passa sem nenhum outro módulo estar no ar.
 16. As migrations rodam com `own_{modulo}`; a aplicação roda com `usr_{modulo}`.
-17. Os eventos publicados seguem o envelope da seção 9.7 e estão descritos no AsyncAPI.
+17. Os eventos publicados seguem o envelope da seção 9.7, levam `user_id` e estão descritos no AsyncAPI.
 18. Todo consumidor ignora um evento já processado — testado com a mesma mensagem entregue duas vezes.
 19. O serviço aceita cabeçalho de 32 KB e responde normalmente a um token de ADMINISTRADOR.
 
