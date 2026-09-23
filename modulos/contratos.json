@@ -6,7 +6,7 @@
   "urlFrontend": "/modulos/contratos/",
   "prefixoApi": "/api/contratos",
   "permissaoMenu": "contratos.acessar",
-  "ordemMenu": 30,
+  "ordemMenu": 40,
   "healthcheck": "/api/contratos/health",
   "itensSubmenu": [
     { "rota": "/contratos", "nome": "Contratos", "permissao": "contratos.contrato.ver" },
