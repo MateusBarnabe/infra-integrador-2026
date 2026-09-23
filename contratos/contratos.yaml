@@ -126,7 +126,7 @@ paths:
         '401': { $ref: '#/components/responses/NaoAutenticado' }
         '403': { $ref: '#/components/responses/SemPermissao' }
 
-  /api/contratos/contratos/busca:
+  /api/contratos/busca:
     get:
       tags: [integracoes]
       operationId: buscarContratos
@@ -467,6 +467,13 @@ paths:
         '401': { $ref: '#/components/responses/NaoAutenticado' }
         '403': { $ref: '#/components/responses/SemPermissao' }
         '404': { $ref: '#/components/responses/NaoEncontrado' }
+
+  /api/contratos/documentos/{documentoId}:
+    parameters:
+      - name: documentoId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
     delete:
       tags: [documentos]
       operationId: excluirDocumento
@@ -753,11 +760,20 @@ components:
           type: [string, 'null']
           format: uuid
           description: >-
-            Referência opcional ao catálogo do módulo Produtos. Licenças e
-            catálogo estão sem dono no Mapa de Fronteiras — mesma solução
-            adotada pelo Chamados para `servicoId`: fica nulo até haver dono.
+            Referência opcional a um item do catálogo publicado pelo módulo
+            Produtos (Grupo 1, dono do catálogo — PR #10). No Mapa de
+            Fronteiras, quem ficou sem dono foram licenças e serviços
+            contratados, não o catálogo: mesma solução adotada pelo Chamados
+            para `servicoId`, fica nulo até haver dono para esses itens.
         descricao: { type: string, minLength: 1, maxLength: 255, example: Suporte técnico mensal }
-        quantidade: { type: integer, minimum: 1, example: 1 }
+        quantidade:
+          type: number
+          minimum: 0.0001
+          multipleOf: 0.0001
+          example: 1
+          description: >-
+            Até 4 casas decimais — o catálogo do módulo Produtos vende GB, TB
+            e hora fracionados.
         valorUnitario: { $ref: '#/components/schemas/Money' }
         valorTotal: { $ref: '#/components/schemas/Money' }
 
