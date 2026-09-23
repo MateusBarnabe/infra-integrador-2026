@@ -1,7 +1,7 @@
 asyncapi: 3.0.0
 info:
   title: Identity — mensagens recebidas pela plataforma
-  version: 0.1.0
+  version: 0.2.0
   description: |
     Pedidos que qualquer módulo publica na exchange `identity.entrada` para registrar na
     timeline, notificar um usuário ou enviar e-mail (Contrato de Integração §9.7).
@@ -10,7 +10,14 @@ info:
     mensagem entregue duas vezes produz um único efeito. Depois de três falhas, a mensagem
     vai para a fila `.dlq` correspondente.
 
-    Na onda 1, o identity não publica eventos próprios.
+    **Propriedade AMQP `user_id` obrigatória (desde a 0.2.0).** Toda mensagem é publicada com
+    `user_id` igual ao usuário da conexão, `mq_{modulo}`. O RabbitMQ recusa um `user_id` que não
+    seja o do usuário autenticado; o identity recusa, direto para a `.dlq`, a mensagem sem
+    `user_id` ou cujo `moduloOrigem` não corresponda a ele. É o que impede um módulo de pedir
+    algo em nome de outro. Em Spring AMQP: `mensagem.getMessageProperties().setUserId(usuario)`;
+    em pika: `BasicProperties(user_id=usuario)`.
+
+    O identity ainda não publica eventos próprios.
 defaultContentType: application/json
 
 servers:
@@ -177,6 +184,11 @@ components:
           maxLength: 500
         rota:
           type: [string, 'null']
+          maxLength: 500
+          description: |
+            Relativa ao front do módulo de origem, sem o código — a mesma regra de
+            `modulo:navegar` (Contrato §12.2). Ao clicar, a casca abre `/app/{moduloOrigem}{rota}`.
+          examples: [/cobrancas/7b1e]
 
     DadosEmail:
       type: object
