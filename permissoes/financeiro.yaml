@@ -6,7 +6,10 @@ permissoes:
     perfisPadrao: [ADMINISTRADOR, GESTOR, FINANCEIRO, CONTABILIDADE]
 
   - codigo: financeiro.cobranca.ver_resumo
-    descricao: Ver status e vencimento de uma cobrança, sem valor nem forma de pagamento — permissão fraca, para telas de outros módulos (ex. área de trabalho comercial do CRM)
+    descricao: >-
+      Ver status e vencimento de cobranças, sem valor nem forma de pagamento — permissão
+      fraca (Contrato §9.3), usada pelo status financeiro exibido na ficha de empresa do
+      CRM (§10.4) e por outras telas de outros módulos
     perfisPadrao: [ADMINISTRADOR, GESTOR, VENDEDOR, FINANCEIRO, CONTABILIDADE]
 
   - codigo: financeiro.contareceber.ver
@@ -49,6 +52,10 @@ permissoes:
     descricao: Ver o painel de inadimplência
     perfisPadrao: [ADMINISTRADOR, GESTOR, FINANCEIRO]
 
+  - codigo: financeiro.regua.ver
+    descricao: Ver a configuração da régua de cobrança
+    perfisPadrao: [ADMINISTRADOR, GESTOR, FINANCEIRO]
+
   - codigo: financeiro.regua.administrar
     descricao: Configurar a régua de cobrança
     perfisPadrao: [ADMINISTRADOR, FINANCEIRO]
@@ -60,7 +67,3 @@ permissoes:
   - codigo: financeiro.relatorio.exportar
     descricao: Exportar relatórios financeiros em PDF, XLSX ou CSV
     perfisPadrao: [ADMINISTRADOR, GESTOR, FINANCEIRO, CONTABILIDADE]
-
-  - codigo: financeiro.webhook.administrar
-    descricao: Gerenciar a configuração de webhook do provedor de pagamento
-    perfisPadrao: [ADMINISTRADOR]

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Financeiro — Módulo
-  version: 0.2.0
+  version: 0.3.0
   summary: Contas a receber, cobrança recorrente, pagamentos, régua, inadimplência e MRR.
   description: |
     API do módulo Financeiro (código `financeiro`, Grupo 8) do Projeto Integrador 2026.
@@ -18,6 +18,13 @@ info:
     arredondamento silencioso; percentuais em pontos (12.5 = 12,5%); busca global no
     formato padrão (id, titulo, subtitulo, rota, máx. 5 resultados); download de arquivo
     é a única exceção ao envelope `{ success, data, message, errors }`.
+
+    Integrações de leitura para outros módulos (tag `integracoes`): status financeiro da
+    empresa exibido na ficha do CRM (§10.4), com a permissão fraca
+    `financeiro.cobranca.ver_resumo` (§9.3) e versão em lote (§9.4).
+
+    Superfície pública: o webhook do provedor de pagamento fica sob `/public/financeiro/**`,
+    único prefixo dispensado de token no gateway (§12.6).
   license:
     name: Uso acadêmico — Projeto Integrador 2026
     identifier: LicenseRef-Academico
@@ -31,6 +38,8 @@ tags:
     description: Estado do serviço
   - name: busca
     description: Busca global (Contrato v0.7) — formato padrão id/titulo/subtitulo/rota
+  - name: integracoes
+    description: Endpoints consumidos por outros módulos — ficha de empresa do CRM
   - name: contas-a-receber
     description: Cobranças emitidas a clientes
   - name: contas-a-pagar
@@ -40,7 +49,7 @@ tags:
   - name: pagamentos
     description: Solicitação de pagamento via adaptador de provedor (simulado nesta fase)
   - name: webhooks
-    description: Callbacks de provedores de pagamento — sem token de usuário
+    description: Callbacks de provedores de pagamento — rota pública, sem token (§12.6)
   - name: regua
     description: Configuração da régua de cobrança
   - name: inadimplencia
@@ -77,13 +86,17 @@ paths:
       operationId: buscarFinanceiro
       summary: Busca global — cobranças e contas a pagar por texto
       description: >
-        Formato padrão da busca global (Contrato v0.7): no máximo 5 resultados,
-        cada um com id, titulo, subtitulo e rota (relativa ao módulo).
+        Exige `financeiro.acessar`. Cada tipo de resultado só aparece para quem pode
+        ler aquele recurso: cobranças com `financeiro.contareceber.ver`, contas a pagar
+        com `financeiro.contapagar.ver` — o subtítulo mostra valor, por isso não basta
+        a permissão fraca. Formato padrão da busca global (Contrato v0.7, §8.6): no
+        máximo 5 resultados, cada um com id, titulo, subtitulo e rota (relativa ao
+        módulo).
       parameters:
         - name: q
           in: query
           required: true
-          schema: { type: string, minLength: 1 }
+          schema: { type: string, minLength: 2 }
       responses:
         '200':
           description: Resultados da busca (até 5)
@@ -97,7 +110,9 @@ paths:
                         type: array
                         maxItems: 5
                         items: { $ref: '#/components/schemas/ResultadoBusca' }
+        '400': { $ref: '#/components/responses/DadosInvalidos' }
         '401': { $ref: '#/components/responses/NaoAutenticado' }
+        '403': { $ref: '#/components/responses/SemPermissao' }
 
   /api/financeiro/relatorios/cobrancas/exportar:
     get:
@@ -228,6 +243,7 @@ paths:
                   - properties:
                       data: { $ref: '#/components/schemas/Cobranca' }
         '401': { $ref: '#/components/responses/NaoAutenticado' }
+        '403': { $ref: '#/components/responses/SemPermissao' }
         '404': { $ref: '#/components/responses/NaoEncontrado' }
     put:
       tags: [contas-a-receber]
@@ -285,10 +301,14 @@ paths:
       tags: [pagamentos]
       operationId: gerarPixCobranca
       summary: Solicitar cobrança via PIX
-      description: Adaptador de provedor simulado nesta fase (arquitetura desacoplada, §28 do Prompt Mestre).
+      description: >
+        Exige `financeiro.contareceber.editar`. Adaptador de provedor simulado nesta fase
+        (arquitetura desacoplada, §28 do Prompt Mestre).
       responses:
         '201':
           description: PIX gerado
+          headers:
+            Location: { $ref: '#/components/headers/LocationPagamento' }
           content:
             application/json:
               schema:
@@ -297,6 +317,7 @@ paths:
                   - properties:
                       data: { $ref: '#/components/schemas/PagamentoSolicitado' }
         '401': { $ref: '#/components/responses/NaoAutenticado' }
+        '403': { $ref: '#/components/responses/SemPermissao' }
         '404': { $ref: '#/components/responses/NaoEncontrado' }
 
   /api/financeiro/cobrancas/{id}/pagamento/boleto:
@@ -309,10 +330,12 @@ paths:
       tags: [pagamentos]
       operationId: gerarBoletoCobranca
       summary: Gerar boleto
-      description: Adaptador de provedor simulado nesta fase.
+      description: Exige `financeiro.contareceber.editar`. Adaptador de provedor simulado nesta fase.
       responses:
         '201':
           description: Boleto gerado
+          headers:
+            Location: { $ref: '#/components/headers/LocationPagamento' }
           content:
             application/json:
               schema:
@@ -321,6 +344,7 @@ paths:
                   - properties:
                       data: { $ref: '#/components/schemas/PagamentoSolicitado' }
         '401': { $ref: '#/components/responses/NaoAutenticado' }
+        '403': { $ref: '#/components/responses/SemPermissao' }
         '404': { $ref: '#/components/responses/NaoEncontrado' }
 
   /api/financeiro/cobrancas/{id}/pagamento/cartao:
@@ -334,12 +358,15 @@ paths:
       operationId: gerarCartaoCobranca
       summary: Gerar link de pagamento por cartão
       description: >
+        Exige `financeiro.contareceber.editar`.
         Adaptador de provedor simulado nesta fase. Pendência aberta: o Prompt Mestre (§27)
         prevê também CARTÃO RECORRENTE — cobrança recorrente por cartão salvo, ainda não
         coberta por este endpoint (ver seção 2 do Levantamento de Requisitos).
       responses:
         '201':
           description: Link de pagamento gerado
+          headers:
+            Location: { $ref: '#/components/headers/LocationPagamento' }
           content:
             application/json:
               schema:
@@ -348,20 +375,53 @@ paths:
                   - properties:
                       data: { $ref: '#/components/schemas/PagamentoSolicitado' }
         '401': { $ref: '#/components/responses/NaoAutenticado' }
+        '403': { $ref: '#/components/responses/SemPermissao' }
         '404': { $ref: '#/components/responses/NaoEncontrado' }
 
-  /api/financeiro/webhooks/pagamento:
+  /api/financeiro/pagamentos/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [pagamentos]
+      operationId: verPagamento
+      summary: Consultar uma solicitação de pagamento
+      description: >
+        Exige `financeiro.contareceber.ver`. Destino do `Location` devolvido pelos
+        `POST .../pagamento/*` (§8.4); serve também para a tela acompanhar se o PIX
+        ou o boleto já foi pago. Pagamento de outro tenant responde 404.
+      responses:
+        '200':
+          description: Solicitação de pagamento
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - properties:
+                      data: { $ref: '#/components/schemas/PagamentoSolicitado' }
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+        '403': { $ref: '#/components/responses/SemPermissao' }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+
+  /public/financeiro/webhooks/pagamento:
     post:
       tags: [webhooks]
       operationId: receberWebhookPagamento
       summary: Callback de confirmação de pagamento do provedor
       security: []
       description: >
-        Rota especial sem JWT de usuário — chamada pelo provedor externo. Assinatura
-        validada no corpo do payload. Idempotente por `eventoId`: reenvio do mesmo evento
-        retorna 200 sem criar pagamento duplicado. Publica `financeiro.pagamento.confirmado`
-        (ou `financeiro.pagamento.atrasado`/`financeiro.pagamento.falhou`) depois do commit.
-        Pendência aberta com o Grupo 2 sobre como o gateway expõe esta rota sem exigir token.
+        Rota pública (§12.6): fica sob `/public/**`, o único prefixo que o gateway
+        dispensa de token, e é chamada pelo provedor externo. A assinatura do payload é
+        validada antes de qualquer processamento. O tenant nunca vem do payload: é
+        resolvido pela cobrança (`cobrancaId`) depois da assinatura validada. Sujeita a
+        rate limit por IP, como toda rota pública. Idempotente por `eventoId`: reenvio do
+        mesmo evento retorna 200 sem criar pagamento duplicado. Publica
+        `financeiro.pagamento.confirmado` ou `financeiro.pagamento.falhou` (este também
+        para estorno) depois do commit; `financeiro.pagamento.atrasado` não sai daqui, e
+        sim do job da régua de cobrança. A resposta não devolve dado de negócio.
       requestBody:
         required: true
         content:
@@ -373,10 +433,15 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                required: [recebido]
-                properties:
-                  recebido: { type: boolean, example: true }
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - properties:
+                      data:
+                        type: object
+                        required: [recebido]
+                        properties:
+                          recebido: { type: boolean, example: true }
+              example: { success: true, data: { recebido: true }, message: null, errors: [] }
         '400':
           description: Assinatura inválida ou payload malformado
           content:
@@ -412,6 +477,7 @@ paths:
                                 type: array
                                 items: { $ref: '#/components/schemas/ContaPagar' }
         '401': { $ref: '#/components/responses/NaoAutenticado' }
+        '403': { $ref: '#/components/responses/SemPermissao' }
     post:
       tags: [contas-a-pagar]
       operationId: criarContaPagar
@@ -425,6 +491,9 @@ paths:
       responses:
         '201':
           description: Conta a pagar criada
+          headers:
+            Location:
+              schema: { type: string, example: /api/financeiro/contas-pagar/7d1e2f3a-4b5c-4d6e-8f9a-0b1c2d3e4f5a }
           content:
             application/json:
               schema:
@@ -495,6 +564,7 @@ paths:
                                 type: array
                                 items: { $ref: '#/components/schemas/RegraRecorrencia' }
         '401': { $ref: '#/components/responses/NaoAutenticado' }
+        '403': { $ref: '#/components/responses/SemPermissao' }
     post:
       tags: [recorrencia]
       operationId: criarRecorrencia
@@ -508,6 +578,9 @@ paths:
       responses:
         '201':
           description: Regra criada
+          headers:
+            Location:
+              schema: { type: string, example: /api/financeiro/recorrencias/2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e }
           content:
             application/json:
               schema:
@@ -562,12 +635,16 @@ paths:
       operationId: gerarCobrancaRecorrencia
       summary: Disparar manualmente a geração da cobrança do ciclo
       description: >
+        Exige `financeiro.recorrencia.administrar`.
         Uso de teste/depuração do job periódico. Valor recalculado a partir dos itens
         vigentes da regra; consumo acima da franquia soma excedente. Publica
         `financeiro.cobranca.criada` depois do commit.
       responses:
         '201':
           description: Cobrança gerada para o ciclo atual
+          headers:
+            Location:
+              schema: { type: string, example: /api/financeiro/cobrancas/5c2d9e1a-0f3b-4b7e-9a6d-1e2f3a4b5c6d }
           content:
             application/json:
               schema:
@@ -576,6 +653,7 @@ paths:
                   - properties:
                       data: { $ref: '#/components/schemas/Cobranca' }
         '401': { $ref: '#/components/responses/NaoAutenticado' }
+        '403': { $ref: '#/components/responses/SemPermissao' }
         '404': { $ref: '#/components/responses/NaoEncontrado' }
         '409':
           description: Já existe cobrança gerada para este ciclo (evita duplicidade)
@@ -588,6 +666,7 @@ paths:
       tags: [regua]
       operationId: verRegua
       summary: Consultar a configuração atual da régua de cobrança
+      description: Exige `financeiro.regua.ver`.
       responses:
         '200':
           description: Configuração da régua
@@ -599,6 +678,7 @@ paths:
                   - properties:
                       data: { $ref: '#/components/schemas/ReguaCobranca' }
         '401': { $ref: '#/components/responses/NaoAutenticado' }
+        '403': { $ref: '#/components/responses/SemPermissao' }
     put:
       tags: [regua]
       operationId: atualizarRegua
@@ -651,7 +731,9 @@ paths:
       tags: [mrr-dashboard]
       operationId: verMrr
       summary: MRR decomposto do período
-      description: Novo, Expansion, Contraction, Churned e Net New (§75 do Prompt Mestre).
+      description: >
+        Exige `financeiro.dashboard.ver`. Novo, Expansion, Contraction, Churned e Net New
+        (§75 do Prompt Mestre).
       parameters:
         - name: periodo
           in: query
@@ -669,6 +751,7 @@ paths:
                   - properties:
                       data: { $ref: '#/components/schemas/MrrResponse' }
         '401': { $ref: '#/components/responses/NaoAutenticado' }
+        '403': { $ref: '#/components/responses/SemPermissao' }
 
   /api/financeiro/dashboard:
     get:
@@ -689,6 +772,67 @@ paths:
         '401': { $ref: '#/components/responses/NaoAutenticado' }
         '403': { $ref: '#/components/responses/SemPermissao' }
 
+  /api/financeiro/empresas/{empresaId}/status-financeiro:
+    parameters:
+      - name: empresaId
+        in: path
+        required: true
+        description: UUID da empresa no CRM (o mesmo `clienteId` das cobranças)
+        schema: { type: string, format: uuid }
+    get:
+      tags: [integracoes]
+      operationId: statusFinanceiroDaEmpresa
+      summary: O status financeiro mostrado na ficha de empresa do CRM
+      description: >
+        Exige `financeiro.cobranca.ver_resumo` (Contrato §9.3, §10.4). Sempre responde
+        200, mesmo sem cobrança — o Financeiro não enxerga o schema do CRM, e um 404 aqui
+        seria lido como erro pela ficha (mesmo critério do Chamados para `status-tecnico`
+        e do Contratos para `status-contratual`). Empresa sem cobrança volta
+        `situacao: sem_cobranca`. Não expõe valor nem forma de pagamento.
+      responses:
+        '200':
+          description: Status financeiro
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - properties:
+                      data: { $ref: '#/components/schemas/StatusFinanceiro' }
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+        '403': { $ref: '#/components/responses/SemPermissao' }
+
+  /api/financeiro/empresas/status-financeiro:
+    get:
+      tags: [integracoes]
+      operationId: statusFinanceiroEmLote
+      summary: Status financeiro de várias empresas de uma vez
+      description: >
+        Exige `financeiro.cobranca.ver_resumo`. Máximo 100 ids (Contrato §9.4).
+        Devolve um item para cada id pedido, mesmo sem cobrança.
+      parameters:
+        - name: ids
+          in: query
+          required: true
+          schema: { type: array, items: { type: string, format: uuid }, maxItems: 100 }
+          style: form
+          explode: false
+      responses:
+        '200':
+          description: Status financeiro de cada empresa
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/StatusFinanceiro' }
+        '400': { $ref: '#/components/responses/DadosInvalidos' }
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+        '403': { $ref: '#/components/responses/SemPermissao' }
+
 components:
   securitySchemes:
     bearerJwt:
@@ -698,6 +842,11 @@ components:
       description: >
         Token emitido pelo serviço de identidade (Grupo 2), validado localmente via
         JWKS. Claims relevantes: sub, tenant_id, roles, perms.
+
+  headers:
+    LocationPagamento:
+      description: Endereço da solicitação de pagamento criada (§8.4)
+      schema: { type: string, example: /api/financeiro/pagamentos/8e9f0a1b-2c3d-4e5f-9a6b-7c8d9e0f1a2b }
 
   parameters:
     Pagina:
@@ -773,7 +922,27 @@ components:
         id: { type: string, format: uuid }
         titulo: { type: string, example: 'Cobrança #3a7e91b0 — Distribuidora XYZ' }
         subtitulo: { type: string, example: 'Vence em 10/09/2026 · R$ 1.490,00' }
-        rota: { type: string, example: '/cobrancas/3a7e91b0-c1d2-4e5f-8a9b-1c2d3e4f5a6b', description: Relativa ao módulo, não ao domínio inteiro. }
+        rota: { type: string, example: '/cobrancas/3a7e91b0-c1d2-4e5f-8a9b-1c2d3e4f5a6b', description: 'Relativa ao urlFrontend do módulo (/modulos/financeiro/), não ao domínio inteiro.' }
+
+    StatusFinanceiro:
+      type: object
+      description: >
+        Um dos quatro status da ficha de empresa (Contrato §10.4); dono é o Financeiro.
+        Resumo sem valores nem forma de pagamento — é o que a permissão fraca
+        `financeiro.cobranca.ver_resumo` pode ver.
+      required: [empresaId, situacao, cobrancasEmAtraso]
+      properties:
+        empresaId: { type: string, format: uuid }
+        situacao:
+          type: string
+          enum: [sem_cobranca, ok, atencao, critico]
+          description: >-
+            sem_cobranca: nenhuma cobrança em aberto · ok: cobranças em aberto, nenhuma
+            vencida · atencao: alguma cobrança vencida há até 30 dias · critico: alguma
+            cobrança vencida há mais de 30 dias
+        cobrancasEmAtraso: { type: integer, minimum: 0, example: 1 }
+        diasMaiorAtraso: { type: [integer, 'null'], minimum: 1, example: 12 }
+        proximoVencimento: { type: [string, 'null'], format: date, example: '2026-10-10' }
 
     StatusCobranca:
       type: string
@@ -897,7 +1066,7 @@ components:
       description: Payload recebido do provedor (formato do adaptador simulado nesta fase).
       properties:
         eventoId: { type: string, description: ID único do evento no provedor — usado para idempotência }
-        assinatura: { type: string, description: Assinatura do payload, validada antes de qualquer processamento }
+        assinatura: { type: string, description: 'Assinatura do payload, validada antes de qualquer processamento' }
         tipo: { type: string, enum: [pagamento.confirmado, pagamento.estornado, pagamento.falhou] }
         cobrancaId: { type: string, format: uuid }
         valorPago: { type: [number, 'null'] }
@@ -908,7 +1077,7 @@ components:
       required: [id, diasOffset, canal, templateMensagem, ativa]
       properties:
         id: { type: string, format: uuid }
-        diasOffset: { type: integer, example: -5, description: Negativo = antes do vencimento, positivo = depois }
+        diasOffset: { type: integer, example: -5, description: 'Negativo = antes do vencimento, positivo = depois' }
         canal: { type: string, enum: [EMAIL, WHATSAPP, NOTIFICACAO_INTERNA] }
         templateMensagem: { type: string, example: Sua fatura vence em 5 dias. }
         ativa: { type: boolean, default: true }
