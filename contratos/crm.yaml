@@ -1,11 +1,12 @@
 openapi: 3.1.0
 info:
   title: CRM
-  version: 0.1.0
+  version: 0.2.0
   summary: Contrato do módulo CRM — dono de empresas, contatos e unidades para todo o sistema.
   description: |
-    Cobre os endpoints de Empresas e Contatos fechados no Contrato de Integração §10.
-    Oportunidades, Funil e Propostas entram em versões seguintes, conforme forem implementados.
+    Cobre os endpoints de Empresas e Contatos fechados no Contrato de Integração §10, já
+    ajustados após a revisão da issue #3. Oportunidades e Funil entram em versões seguintes.
+    Propostas não faz parte deste contrato — é escopo do Grupo 5 (Contratos e Documentos).
   license:
     name: Uso acadêmico — Projeto Integrador 2026
     identifier: LicenseRef-Academico
@@ -29,7 +30,10 @@ paths:
       tags: [empresas]
       operationId: listarEmpresas
       summary: Listar empresas do tenant
-      description: Exige `crm.empresa.ver_resumo`.
+      description: |
+        Exige `crm.empresa.ver` — devolve o cadastro completo (vendedor, status comercial,
+        segmento, porte). Quem só tem `crm.empresa.ver_resumo` usa `/empresas/resumo` ou
+        `/busca` (Contrato §9.3).
       parameters:
         - $ref: '#/components/parameters/Pagina'
         - $ref: '#/components/parameters/Tamanho'
@@ -98,12 +102,16 @@ paths:
                 errors:
                   - { campo: cnpj, codigo: EMPRESA_DUPLICADA, detalhe: CNPJ já cadastrado para este tenant. }
 
-  /api/crm/empresas/busca:
+  /api/crm/busca:
     get:
       tags: [empresas]
-      operationId: buscarEmpresas
-      summary: Busca textual, para a busca global da casca
-      description: Exige `crm.empresa.ver_resumo`. Devolve no máximo 5 resultados.
+      operationId: buscaGlobal
+      summary: Busca global do módulo, chamada em paralelo pela casca em todos os módulos
+      description: |
+        Exige `crm.empresa.ver_resumo`. Devolve no máximo 5 resultados, no formato único
+        do Contrato de Integração §8.6 — mesmo caminho (`/api/{modulo}/busca?q=`) e mesmo
+        formato de resposta usados por todos os módulos. Hoje busca apenas em Empresas;
+        outras entidades do CRM entram aqui conforme forem publicadas.
       parameters:
         - name: q
           in: query
@@ -120,8 +128,10 @@ paths:
                   - properties:
                       data:
                         type: array
-                        items: { $ref: '#/components/schemas/EmpresaResumo' }
+                        maxItems: 5
+                        items: { $ref: '#/components/schemas/ResultadoBusca' }
         '401': { $ref: '#/components/responses/NaoAutenticado' }
+        '403': { $ref: '#/components/responses/SemPermissao' }
 
   /api/crm/empresas/resumo:
     get:
@@ -150,6 +160,7 @@ paths:
                         items: { $ref: '#/components/schemas/EmpresaResumo' }
         '400': { $ref: '#/components/responses/DadosInvalidos' }
         '401': { $ref: '#/components/responses/NaoAutenticado' }
+        '403': { $ref: '#/components/responses/SemPermissao' }
 
   /api/crm/empresas/{id}:
     parameters:
@@ -184,7 +195,7 @@ paths:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/NovaEmpresa' }
+            schema: { $ref: '#/components/schemas/EditarEmpresa' }
       responses:
         '200':
           description: Empresa atualizada
@@ -222,6 +233,7 @@ paths:
                   - properties:
                       data: { $ref: '#/components/schemas/EmpresaResumo' }
         '401': { $ref: '#/components/responses/NaoAutenticado' }
+        '403': { $ref: '#/components/responses/SemPermissao' }
         '404': { $ref: '#/components/responses/NaoEncontrado' }
 
   /api/crm/empresas/{id}/contatos:
@@ -234,10 +246,13 @@ paths:
       tags: [empresas]
       operationId: contatosDaEmpresa
       summary: Contatos vinculados à empresa
-      description: Exige `crm.contato.ver`.
+      description: Exige `crm.contato.ver`. Listagem paginada (Contrato §8.3).
+      parameters:
+        - $ref: '#/components/parameters/Pagina'
+        - $ref: '#/components/parameters/Tamanho'
       responses:
         '200':
-          description: Lista de contatos
+          description: Página de contatos
           content:
             application/json:
               schema:
@@ -245,8 +260,12 @@ paths:
                   - $ref: '#/components/schemas/Envelope'
                   - properties:
                       data:
-                        type: array
-                        items: { $ref: '#/components/schemas/Contato' }
+                        allOf:
+                          - $ref: '#/components/schemas/Pagina'
+                          - properties:
+                              itens:
+                                type: array
+                                items: { $ref: '#/components/schemas/Contato' }
         '401': { $ref: '#/components/responses/NaoAutenticado' }
         '403': { $ref: '#/components/responses/SemPermissao' }
         '404': { $ref: '#/components/responses/NaoEncontrado' }
@@ -275,6 +294,7 @@ paths:
                         type: array
                         items: { $ref: '#/components/schemas/Unidade' }
         '401': { $ref: '#/components/responses/NaoAutenticado' }
+        '403': { $ref: '#/components/responses/SemPermissao' }
         '404': { $ref: '#/components/responses/NaoEncontrado' }
 
   /api/crm/contatos:
@@ -282,7 +302,10 @@ paths:
       tags: [empresas]
       operationId: criarContato
       summary: Criar contato
-      description: Exige `crm.contato.criar`.
+      description: |
+        Exige `crm.contato.criar`. E-mail já cadastrado na mesma empresa responde 409 com
+        o id existente em `data.contatoId` — o chamador reaproveita esse id em vez de tratar
+        como erro (evita contato duplicado a cada reenvio do mesmo formulário, Contrato §12.7).
       requestBody:
         required: true
         content:
@@ -291,6 +314,9 @@ paths:
       responses:
         '201':
           description: Contato criado
+          headers:
+            Location:
+              schema: { type: string, example: /api/crm/contatos/7b1e4c3a-2f9d-4a1e-8c3b-9d2f1a4b5c6e }
           content:
             application/json:
               schema:
@@ -298,6 +324,46 @@ paths:
                   - $ref: '#/components/schemas/Envelope'
                   - properties:
                       data: { $ref: '#/components/schemas/Contato' }
+        '400': { $ref: '#/components/responses/DadosInvalidos' }
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+        '403': { $ref: '#/components/responses/SemPermissao' }
+        '409':
+          description: E-mail já cadastrado nesta empresa
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Envelope' }
+              example:
+                success: false
+                data: { contatoId: 7b1e4c3a-2f9d-4a1e-8c3b-9d2f1a4b5c6e }
+                message: Já existe contato com este e-mail nesta empresa.
+                errors:
+                  - { campo: email, codigo: CONTATO_DUPLICADO, detalhe: E-mail já cadastrado para esta empresa. }
+
+  /api/crm/contatos/resumo:
+    get:
+      tags: [empresas]
+      operationId: resumoContatosEmLote
+      summary: Resumo de vários contatos de uma vez
+      description: Exige `crm.contato.ver_resumo`. Máximo 100 ids por chamada (Contrato §9.4).
+      parameters:
+        - name: ids
+          in: query
+          required: true
+          schema: { type: array, items: { type: string, format: uuid }, maxItems: 100 }
+          style: form
+          explode: false
+      responses:
+        '200':
+          description: Resumos encontrados
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/ContatoResumo' }
         '400': { $ref: '#/components/responses/DadosInvalidos' }
         '401': { $ref: '#/components/responses/NaoAutenticado' }
         '403': { $ref: '#/components/responses/SemPermissao' }
@@ -361,7 +427,10 @@ paths:
       tags: [empresas]
       operationId: resumoContato
       summary: Nome, cargo, e-mail e telefone
-      description: Exige `crm.contato.ver`.
+      description: |
+        Exige `crm.contato.ver_resumo` — permissão fraca, padrão de todo perfil operacional
+        (Contrato §9.3). Antes exigia `crm.contato.ver`, o que devolvia 403 para Chamados,
+        Financeiro e Marketing.
       responses:
         '200':
           description: Resumo
@@ -373,6 +442,7 @@ paths:
                   - properties:
                       data: { $ref: '#/components/schemas/ContatoResumo' }
         '401': { $ref: '#/components/responses/NaoAutenticado' }
+        '403': { $ref: '#/components/responses/SemPermissao' }
         '404': { $ref: '#/components/responses/NaoEncontrado' }
 
   /api/crm/health:
@@ -491,6 +561,31 @@ components:
             statusComercial: { type: string, enum: [lead, prospect, cliente_ativo, inativo] }
             criadoEm: { type: string, format: date-time }
 
+    ResultadoBusca:
+      type: object
+      required: [id, titulo, subtitulo, rota]
+      description: Formato único de busca global do sistema (Contrato §8.6). subtitulo sempre presente; string vazia quando a empresa não tem CNPJ.
+      properties:
+        id: { type: string, format: uuid }
+        titulo: { type: string, example: Centinela Soluções Digitais }
+        subtitulo: { type: [string, 'null'], example: '28.954.678/0001-22' }
+        rota: { type: string, example: /empresas/5c2d9e1a-0f3b-4b7e-9a6d-1e2f3a4b5c6d, description: Relativa ao urlFrontend do módulo }
+
+    EditarEmpresa:
+      type: object
+      required: [razaoSocial]
+      description: Schema de edição — sem origem/origemModuloId, que não mudam após a criação.
+      properties:
+        razaoSocial: { type: string, minLength: 1, maxLength: 255 }
+        nomeFantasia: { type: [string, 'null'], maxLength: 255 }
+        cnpj: { type: [string, 'null'], pattern: '^[0-9]{14}$' }
+        segmento: { type: [string, 'null'] }
+        porte: { type: [string, 'null'] }
+        cidade: { type: [string, 'null'] }
+        estado: { type: [string, 'null'], minLength: 2, maxLength: 2 }
+        vendedorResponsavel: { type: [string, 'null'], format: uuid }
+        statusComercial: { type: [string, 'null'], enum: [lead, prospect, cliente_ativo, inativo] }
+
     EmpresaResumo:
       type: object
       required: [id, razaoSocial]
@@ -521,6 +616,11 @@ components:
         papel: { type: [string, 'null'], enum: [decisor, influenciador, tecnico, financeiro, proprietario, outro] }
         consentimentoLgpd: { type: [string, 'null'], enum: [concedido, pendente, revogado] }
         preferenciaComunicacao: { type: [string, 'null'], enum: [telefone, whatsapp, email] }
+        origem: { type: [string, 'null'], example: landing, description: Módulo ou canal que originou o cadastro (Contrato §12.7) }
+        origemModuloId: { type: [string, 'null'], example: form-abc123, description: Identificador na origem }
+        utmSource: { type: [string, 'null'] }
+        utmMedium: { type: [string, 'null'] }
+        utmCampaign: { type: [string, 'null'] }
 
     Contato:
       allOf:
