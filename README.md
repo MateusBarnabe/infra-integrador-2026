@@ -20,7 +20,7 @@ a forma executável delas.
 | `modulos/` | Registro de cada módulo no menu da casca | Cada grupo, por PR |
 | `ui/` | Tema Tailwind v4 + shadcn/ui da plataforma | Grupo 2 |
 | `exemplo-modulo/` | Back-end e front de um módulo pronto, para copiar | Grupo 2 |
-| `docs/` | Contrato de Integração, Mapa de Fronteiras, usuários de teste e checklist de conformidade | Grupo 2; o Contrato e o Mapa mudam por PR aprovado pelos gestores |
+| `docs/` | Contrato de Integração, Mapa de Fronteiras, usuários de teste e checklist de conformidade | Grupo 2; o Contrato e o Mapa mudam por PR, com prazo de objeção para os gestores |
 | `.github/workflows/` | Validação deste repositório e workflow reutilizável de publicação de imagem | Grupo 2 |
 
 ## Subir o ambiente
@@ -125,9 +125,10 @@ Enquanto o identity não estiver publicado, desenvolva contra os contratos com o
 - [Manual de implantação](docs/manual-de-implantacao.md) — ambientes, variáveis, subida só com
   imagens publicadas, logs, métricas e cópia de segurança
 
-Estes dois arquivos são a versão oficial. Qualquer mudança entra por *pull request* e vale
-depois que os gestores dos grupos aprovam o PR — é assim que uma versão nova do Contrato é
-ratificada. O histórico do Git mostra o que mudou em cada versão.
+Estes dois arquivos são a versão oficial, mantida pelo Grupo 2. Qualquer mudança entra por
+*pull request*, anunciado no grupo de gestores com um prazo para objeções: quem discorda
+comenta no PR; sem objeção até o prazo, o Grupo 2 faz o merge e a versão passa a valer
+(Contrato §13.2). O histórico do Git mostra o que mudou em cada versão.
 
 Documentos do Grupo 2, sobre a própria plataforma:
 

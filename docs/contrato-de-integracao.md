@@ -6,8 +6,8 @@ Regras que todo módulo precisa cumprir para funcionar dentro da plataforma: com
 
 | | |
 |---|---|
-| Versão | 0.6 |
-| Situação | v0.5 ratificada por 4 de 8 · v0.6 em ratificação |
+| Versão | 0.7 |
+| Situação | v0.5 ratificada por 4 de 8 · v0.6 e v0.7 em prazo de objeção |
 | Vinculado a | 8 grupos |
 | Fonte de requisitos | Prompt Mestre, seções 84–92 |
 
@@ -16,6 +16,19 @@ Regras que todo módulo precisa cumprir para funcionar dentro da plataforma: com
 > As quatro decisões estruturais — iframe, schema por grupo, `tenant_id` desde a primeira migration e dono único de Empresas e Contatos — foram aceitas sem objeção pelos grupos abaixo. Os demais ainda não se manifestaram. As seções 4, 6, 7 e 10 já podem ser seguidas; mudá-las depois custa retrabalho de migration em todos os módulos.
 >
 > ✓ CRM · ✓ Financeiro · ✓ Produtos e Serviços · ✓ Plataforma<br> ⋯ Contratos · ⋯ Chamados · ⋯ Marketing · ⋯ Landing Pages
+
+> **O que a versão 0.7 acrescenta · vale se não houver objeção até o prazo anunciado no grupo de gestores**
+>
+> - **Busca global**: formato único de resposta, com no máximo cinco resultados e rota relativa ao módulo — §8.6.
+> - **Valores monetários e percentuais** num formato só, sem arredondamento silencioso — §8.7.
+> - **Download de arquivo** como única exceção ao envelope — §8.2.
+> - **Rota relativa ao módulo** em `modulo:navegar`, com o exemplo corrigido — §12.2.
+> - **Este contrato passa a viver no repositório**, e uma versão nova é um *pull request* — §13.2.
+> - **Erro padronizado do gateway** quando o módulo está fora do ar (`503`) ou não responde em 3 segundos (`504`), com o código do módulo em `errors[0]` — §8.4.
+> - **Cabeçalhos que o gateway reescreve**: `X-Forwarded-For` passa a ser só o IP da conexão e `X-Tenant-Id` vindo do navegador é descartado. Por isso token de serviço só funciona na chamada direta entre serviços, nunca pelo gateway — §3 e §9.2.
+> - **`user_id` obrigatório** nas mensagens do RabbitMQ, para um módulo não publicar em nome de outro — §9.7.
+> - **Sessão recebida antes de a tela existir**: o módulo ouve as mensagens da casca antes de enviar `modulo:pronto` e guarda a sessão fora dos componentes. O `App.tsx` do módulo de exemplo perdia a sessão nessa corrida e foi corrigido em 22/09 — quem o copiou antes precisa da correção — §12.2.
+> - **O gateway envia `X-Frame-Options: SAMEORIGIN`**; o front do módulo não pode responder `DENY` nem `frame-ancestors 'none'`, ou não abre dentro da casca — §12.8.
 
 > **O que a versão 0.6 acrescenta · precisa de nova ratificação dos oito grupos**
 >
@@ -121,6 +134,15 @@ O navegador conhece um endereço só: o gateway. Ele nunca fala direto com o ser
 No front, a casca é uma aplicação React servida pelo Grupo 2. Ela renderiza login, barra superior e menu, e embute o front de cada módulo em um `<iframe>` na área de conteúdo. Casca, fronts e APIs saem todos do mesmo endereço, separados por caminho — a seção 12.8 explica por quê.
 
 Atenção a uma assimetria do desenho: o gateway serve ao tráfego que *entra* — o navegador. Um serviço chamando outro serviço vai direto, sem passar por ele, e um fato que interessa a vários módulos viaja pelo RabbitMQ. A seção 9 trata desses dois caminhos.
+
+Por servir ao navegador, o gateway não confia no que ele manda em dois cabeçalhos:
+
+| Cabeçalho | O que o gateway faz | Por quê |
+|---|---|---|
+| `X-Forwarded-For` | substitui pelo IP de quem se conectou a ele | o cliente poderia inventar um IP e escapar do limite de tentativas de login |
+| `X-Tenant-Id` | descarta | só vale com token de serviço, e token de serviço não passa pelo gateway (seção 9.2) |
+
+O gateway também gera um `X-Request-Id` quando a requisição não traz um, repassa ao módulo e o devolve na resposta. O módulo registra esse identificador no log de cada requisição e o repassa nas chamadas que fizer a outros módulos e no `correlacaoId` das mensagens (seção 9.7).
 
 ## 4. Autenticação
 
@@ -397,6 +419,26 @@ Em caso de erro, `message` traz o texto que pode ser mostrado ao usuário e `err
 }
 ```
 
+**A exceção: download de arquivo.** Um arquivo — relatório em PDF, XLSX ou CSV — não cabe dentro de um JSON. A rota que o devolve responde `200` com o próprio arquivo:
+
+```
+GET /api/chamados/relatorios/sla/exportar?formato=xlsx&de=2026-09-01&ate=2026-09-30
+
+  →  200  Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+          Content-Disposition: attachment; filename="sla-2026-09.xlsx"
+          (o arquivo)
+```
+
+> **DEVE**
+>
+> Só o sucesso sai do envelope. Os erros da mesma rota — `400`, `401`, `403`, `404` — continuam no envelope, para a tela mostrar a mensagem como em qualquer outra chamada.
+>
+> No OpenAPI, a resposta `200` declara o tipo do arquivo no lugar de `application/json`.
+
+> **NÃO DEVE**
+>
+> Colocar o token na URL para o navegador baixar direto. URL vai para log e histórico. O front chama a rota com `fetch`, com o token no cabeçalho, e salva o `blob` recebido.
+
 ### 8.3 Listagem paginada
 
 ```
@@ -425,6 +467,19 @@ GET /api/crm/oportunidades?pagina=0&tamanho=20&ordenar=criadoEm,desc
 | `404` | não existe *ou* pertence a outro tenant |
 | `409` | conflito de regra de negócio (duplicidade, estado inválido) |
 | `422` | bem formado, mas viola regra de negócio |
+| `503` | respondido pelo **gateway**: o módulo está fora do ar |
+| `504` | respondido pelo **gateway**: o módulo não respondeu em 3 segundos |
+
+Os dois últimos vêm do gateway, não do módulo, e trazem no envelope o código do módulo, para a tela dizer qual parte do sistema falhou:
+
+```
+HTTP/1.1 503
+{ "success": false, "data": null,
+  "message": "Módulo crm indisponível.",
+  "errors": [ { "campo": "modulo", "codigo": "MODULO_INDISPONIVEL", "detalhe": "crm" } ] }
+
+// 504: "codigo": "MODULO_SEM_RESPOSTA"
+```
 
 Repare no `404`: registro de outro tenant responde “não existe”, nunca `403`. Um `403` confirmaria ao usuário que o registro existe em outra empresa.
 
@@ -433,6 +488,52 @@ Repare no `404`: registro de outro tenant responde “não existe”, nunca `403
 > **DEVE**
 >
 > Todo módulo expõe `GET /api/{modulo}/health`, sem exigir token, respondendo `200` quando o serviço está de pé e conectado ao banco. É o que a casca usa para avisar “módulo indisponível” em vez de mostrar tela branca.
+
+### 8.6 Busca global
+
+A seção 79 do Prompt Mestre pede uma caixa de busca no topo que encontre empresa, proposta, contrato, cobrança e chamado. A casca faz a interface: consulta todos os módulos em paralelo e mostra os resultados agrupados por módulo. Cada módulo responde pelo que é dele.
+
+```
+GET /api/chamados/busca?q=servidor
+
+  →  200  { "success": true,
+            "data": [
+              { "id":        "5c2d9e1a-...",
+                "titulo":    "#1042 — Servidor de arquivos inacessível",
+                "subtitulo": "Em atendimento · Centinela Soluções",
+                "rota":      "/chamados/5c2d9e1a-..." }
+            ],
+            "message": null, "errors": [] }
+```
+
+> **DEVE**
+>
+> Todo módulo com registro que o usuário procura pelo nome ou pelo número expõe `GET /api/{modulo}/busca?q=`, com `q` de pelo menos dois caracteres, e responde neste formato: `id`, `titulo`, `subtitulo` e `rota`, no máximo cinco itens, sem paginação.
+>
+> `rota` é relativa ao `urlFrontend` do módulo, sem o código: `/chamados/5c2d…`, e não `/modulos/chamados/chamados/5c2d…`. A casca abre o módulo nessa rota.
+>
+> A busca respeita a permissão e o tenant do token, como qualquer listagem.
+
+A casca aplica o *timeout* da seção 9.6 a cada módulo. Módulo fora do ar, que responde `403` ou que demora simplesmente não aparece no resultado — a busca nunca falha inteira por causa de um deles.
+
+### 8.7 Valores monetários e percentuais
+
+Dinheiro, desconto, comissão e juros passam de um módulo para outro o tempo todo: o preço do catálogo vira item de contrato, que vira cobrança. Um formato diferente em cada módulo é conta errada em algum lugar do caminho.
+
+| Tipo | No JSON | No Java | No banco |
+|---|---|---|---|
+| Dinheiro | número com até 2 casas: `1890.00` | `BigDecimal` | `numeric(15,2)` |
+| Percentual | número em pontos percentuais, até 4 casas: `12.5` significa 12,5% | `BigDecimal` | `numeric(9,4)` |
+
+> **DEVE**
+>
+> A moeda é o real em todo o sistema, e nenhum campo de moeda é necessário no semestre.
+>
+> Valor com mais casas do que o tipo permite responde `400`, com `codigo: PRECISAO_EXCEDIDA` em `errors`. O servidor nunca arredonda em silêncio.
+
+> **NÃO DEVE**
+>
+> Usar `double` ou `float` para dinheiro, nem representar percentual como fração (`0.125`).
 
 ## 9. Comunicação entre módulos
 
@@ -490,6 +591,10 @@ X-Tenant-Id: 3a7e91b0-...
 > Com token de serviço, o tenant vai no cabeçalho `X-Tenant-Id`. O módulo só lê esse cabeçalho quando o `sub` do token começa com `svc:`; em token de usuário, ele é ignorado. É uma das duas exceções à regra da seção 6, e vale só porque a origem é um serviço autenticado, não o navegador.
 >
 > Toda chamada com token de serviço é registrada em auditoria, com o `clientId` de origem.
+
+> **NÃO DEVE**
+>
+> Chamar com token de serviço pelo gateway. O gateway descarta o `X-Tenant-Id` que chega por ele (seção 3), e a chamada ficaria sem tenant. Rotina de serviço chama o outro módulo direto, pelo nome do container: `http://crm:8082/api/crm/...`.
 
 ### 9.3 Leitura entre módulos e permissão
 
@@ -589,6 +694,8 @@ financeiro.contrato-assinado.dlq     mensagens que falharam três vezes
 > Todo consumidor é idempotente: grava o `id` do evento em `eventos_processados`, na mesma transação do efeito, e ignora um `id` já visto. O RabbitMQ entrega *pelo menos uma vez* — a mesma mensagem pode chegar duas.
 >
 > Depois de três falhas, a mensagem vai para a fila `.dlq` do consumidor, em vez de voltar à fila para sempre.
+>
+> Publicar com a propriedade AMQP `user_id` igual ao usuário da conexão, `mq_{modulo}`. O RabbitMQ recusa um `user_id` diferente do usuário autenticado, e o consumidor confere que ele corresponde ao `moduloOrigem` — sem isso, qualquer módulo poderia publicar em `identity.entrada` fingindo ser outro. A plataforma manda para a `.dlq` o pedido sem `user_id` ou com `moduloOrigem` de outro módulo. No Spring AMQP, `mensagem.getMessageProperties().setUserId("mq_crm")`; o módulo de exemplo já faz isso.
 >
 > Cada módulo descreve os eventos que publica em `infra-integrador-2026/contratos/{modulo}.asyncapi.yaml`, antes de publicá-los.
 
@@ -806,14 +913,18 @@ Cada grupo entrega sua própria aplicação React, com build e container própri
 ```
 { tipo: "modulo:pronto" }                        // carregou, pode enviar a sessão
 { tipo: "modulo:altura",  altura: 1840 }         // a cada mudança de conteúdo
-{ tipo: "modulo:navegar", rota: "/crm/oportunidades/9f1c" }
+{ tipo: "modulo:navegar", rota: "/oportunidades/9f1c" }  // mudou de tela por dentro
 { tipo: "modulo:token-expirado" }                // casca renova e reenvia
 { tipo: "modulo:notificar", nivel: "sucesso", texto: "Oportunidade salva." }
 ```
 
+A `rota` de `modulo:navegar` é relativa ao `urlFrontend` do módulo, sem o código — a mesma regra da busca global (seção 8.6). Com ela, a casca atualiza a própria URL para `/app/crm/oportunidades/9f1c`, e recarregar a página ou usar o botão voltar reabre a mesma tela.
+
 > **DEVE**
 >
 > Verificar, em toda mensagem recebida e dos dois lados, que `event.origin` é a origem da própria plataforma e que `event.source` é a janela esperada — o `contentWindow` do iframe, na casca; `window.parent`, no módulo. Sem isso, outra página com referência à janela consegue conversar com o iframe.
+>
+> Registrar o ouvinte de `message` antes de enviar `modulo:pronto`, e guardar a sessão recebida fora dos componentes, num objeto que a tela lê ao montar. A casca responde ao `modulo:pronto` na hora: se a tela só se inscreve depois do primeiro *render*, a `plataforma:sessao` chega antes e se perde, e o módulo fica esperando para sempre. Foi o defeito do `App.tsx` do módulo de exemplo, corrigido em 22/09.
 
 > **NÃO DEVE**
 >
@@ -914,6 +1025,10 @@ O ganho é ter **uma origem só**. O cookie do *refresh token* funciona sem conf
 >
 > O servidor do front envia `Content-Security-Policy: frame-ancestors 'self'`, para que a página só possa ser embutida pela própria plataforma.
 
+> **NÃO DEVE**
+>
+> Responder `X-Frame-Options: DENY` nem `frame-ancestors 'none'` no front do módulo: a página deixa de abrir dentro da casca. O gateway já envia `X-Frame-Options: SAMEORIGIN` em toda resposta, o que só permite o iframe da própria plataforma.
+
 O custo a registrar: na mesma origem, o iframe isola menos a casca do módulo do que isolaria entre domínios diferentes. É aceitável porque os oito fronts são do mesmo sistema, e o *refresh token* — o que de fato importa proteger — está num cookie que nenhum JavaScript lê.
 
 ## 13. Stack, repositórios e portas
@@ -940,10 +1055,17 @@ Cada grupo tem o seu repositório. O Grupo 2 mantém dois: um com o próprio có
 | Repositório | Conteúdo |
 |---|---|
 | `plataforma-integrador-2026-2` | identity, gateway e casca |
-| `infra-integrador-2026` | `docker-compose.yml` do sistema inteiro · `db/init/` com schemas e usuários · `rabbitmq/` com usuários e permissões · `contratos/` com OpenAPI, AsyncAPI e *views* de cada módulo · `modulos/` com o JSON de registro · `ui/` com o *preset* visual · `exemplo-modulo/` para copiar |
+| `infra-integrador-2026` | `docker-compose.yml` do sistema inteiro · `db/init/` com schemas e usuários · `rabbitmq/` com usuários e permissões · `contratos/` com OpenAPI, AsyncAPI e *views* de cada módulo · `modulos/` com o JSON de registro · `ui/` com o *preset* visual · `exemplo-modulo/` para copiar · `docs/` com este contrato e o Mapa de Fronteiras |
 | um por grupo | o módulo: back-end, front-end, migrations e testes |
 
 Alterações em `infra-integrador-2026` entram por *pull request*: cada grupo propõe o próprio contrato, o próprio JSON de registro e o próprio usuário de banco, e o Grupo 2 revisa. É assim que o repositório comum continua sendo de todos sem que ninguém altere o contrato alheio.
+
+Este contrato também vive ali, em `docs/contrato-de-integracao.md`, e é mantido pelo Grupo 2. Uma versão nova é um *pull request*, anunciado no grupo de gestores com um prazo para objeções:
+
+- quem discorda comenta no próprio PR, na linha da regra. O ponto contestado é discutido ali e ajustado ou retirado antes do merge;
+- sem objeção até o prazo, o Grupo 2 faz o merge, e a versão passa a valer para todos os grupos.
+
+Aprovar o PR é bem-vindo, mas não obrigatório: o silêncio até o prazo conta como aceite, como aconteceu com a versão 0.5. O histórico do Git mostra exatamente o que mudou de uma versão para outra.
 
 ### 13.3 Portas e credenciais
 
@@ -1078,7 +1200,7 @@ Um módulo está integrado quando passa nos dezenove itens abaixo. O Grupo 2 ver
 14. A imagem Docker é publicada a cada merge na branch principal.
 15. A suíte de testes passa sem nenhum outro módulo estar no ar.
 16. As migrations rodam com `own_{modulo}`; a aplicação roda com `usr_{modulo}`.
-17. Os eventos publicados seguem o envelope da seção 9.7 e estão descritos no AsyncAPI.
+17. Os eventos publicados seguem o envelope da seção 9.7, levam `user_id` e estão descritos no AsyncAPI.
 18. Todo consumidor ignora um evento já processado — testado com a mesma mensagem entregue duas vezes.
 19. O serviço aceita cabeçalho de 32 KB e responde normalmente a um token de ADMINISTRADOR.
 
@@ -1088,13 +1210,14 @@ Pontos em aberto que afetam mais de um grupo. Estão listados aqui de propósito
 
 | Pendência | Afeta | Situação |
 |---|---|---|
-| Ratificação da versão 0.6 | Todos | Levar aos oito grupos de uma vez, incluindo os quatro que não se manifestaram sobre a 0.5. |
+| Ratificação das versões 0.6 e 0.7 | Todos | Pelo *pull request* da versão 0.7 no `infra-integrador-2026`, com prazo para objeções (seção 13.2). Vale também para os quatro grupos que não se manifestaram sobre a 0.5. |
 | Equipes no token (5.4) | CRM e quem filtrar por equipe | Proposta da plataforma, a confirmar com o CRM. |
 | Prazo das listas de permissões, OpenAPI e AsyncAPI | Todos | A combinar no grupo de gestores. |
 | Provedor de e-mail fora do ambiente de desenvolvimento | Plataforma, Financeiro, Marketing | A plataforma envia o e-mail de sistema, pedido por `identity.email.enviar`; o provedor SMTP de *staging* e produção depende dos professores. |
 | Onde roda o *staging*, agora com RabbitMQ | Todos | A definir com os professores até a semana 6. |
-| Busca global (seção 79 do Prompt Mestre) | Todos | Proposta mantida: a casca faz a interface; cada módulo expõe `GET /api/{modulo}/busca?q=`. |
 | Anexos e documentos (seções 95 e 96) | Contratos, Chamados, Financeiro, CRM | Proposta mantida: serviço genérico no módulo Contratos e Documentos; os outros referenciam por UUID. |
+
+Resolvidos na versão 0.7: busca global, com formato único de resposta (seção 8.6).
 
 Resolvidos na versão 0.6: acesso a dados de outro módulo, por API ou *view* pública (seção 9.8), e comunicação de eventos, pelo RabbitMQ (seção 9.7). Timeline e notificações passam a chegar à plataforma por mensagem, na exchange `identity.entrada`.
 
@@ -1130,7 +1253,6 @@ Assim o Grupo 3 constrói relatórios sem depender de sete serviços estarem no 
 
 ---
 
-Contrato de Integração dos Módulos · versão 0.6 · 14 de setembro de 2026 · versão 0.5 ratificada por 4 de 8 grupos  
+Contrato de Integração dos Módulos · versão 0.7 · 21 de setembro de 2026 · versão 0.5 ratificada por 4 de 8 grupos  
 Grupo 2 — Plataforma e Controle de Usuários · Projeto Integrador 2026  
-Requisitos derivados do Prompt Mestre do cliente, seções 3, 84 a 92, 105 e 116.  
-Correção em 21 de setembro de 2026: comando do Prism na seção 14.2 (`-m false`).
+Requisitos derivados do Prompt Mestre do cliente, seções 3, 79, 84 a 92, 105 e 116.
