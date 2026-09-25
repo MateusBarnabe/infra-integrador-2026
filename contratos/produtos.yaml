@@ -10,8 +10,9 @@ info:
 
     Cada permissão é verificada no back-end, sem hierarquia implícita. Acesso ao menu não é pré-requisito da API.
 
-    Dinheiro BRL com 2 casas; percentual/fator com 4. Decimais são strings, sem arredondamento silencioso. Excesso
-    de casas: 400/PRECISAO_EXCEDIDA.
+    Dinheiro BRL como número JSON com até 2 casas; percentual/fator como número com até 4. Percentuais em pontos
+    percentuais: 12.5 significa 12,5%. Usar BigDecimal/numeric, sem arredondamento silencioso. Excesso de casas:
+    400/PRECISAO_EXCEDIDA (Contrato §8.7).
 
     Produtos fornece limites manuais. CRM/Propostas alerta abaixo do mínimo, aplica quantidade mínima e aprova desconto
     fora da política; Contratos copia os valores pactuados na assinatura. Inativos não entram em vendas novas. Nenhum
@@ -260,9 +261,9 @@ paths:
                   ativo: true
                   casasDecimaisQuantidade: 0
                   moeda: BRL
-                  precoVenda: '150.00'
-                  precoMinimo: '120.00'
-                  descontoMaximo: '10.0000'
+                  precoVenda: 150.00
+                  precoMinimo: 120.00
+                  descontoMaximo: 10.0000
                 message: null
                 errors: []
         '400':
@@ -329,8 +330,9 @@ paths:
       - itens
       operationId: buscarProdutos
       summary: Busca global por SKU e nome
-      description: Exige `produtos.item.ver_resumo`. Somente ativos; título, subtítulo e rota da casca. Tela de
-        destino oferece resumo com permissão fraca, sem exigir menu. Sem valores sensíveis.
+      description: Exige `produtos.item.ver_resumo`. Somente ativos; até cinco resultados, sem paginação (Contrato
+        §8.6). Rota relativa ao módulo, sem o prefixo /produtos. Tela de destino oferece resumo com permissão fraca,
+        sem exigir menu. Sem valores sensíveis. Ordem por nome, com desempate por id.
       x-permissao: produtos.item.ver_resumo
       parameters:
       - $ref: '#/components/parameters/TenantServico'
@@ -339,25 +341,8 @@ paths:
         required: true
         schema:
           type: string
-          minLength: 1
+          minLength: 2
           pattern: \S
-      - $ref: '#/components/parameters/Pagina'
-      - name: tamanho
-        in: query
-        schema:
-          type: integer
-          minimum: 1
-          maximum: 5
-          default: 5
-      - name: ordenar
-        in: query
-        description: Desempate por id.
-        schema:
-          type: string
-          enum:
-          - nome,asc
-          - nome,desc
-          default: nome,asc
       responses:
         '200':
           description: Operação concluída
@@ -370,18 +355,17 @@ paths:
                     success:
                       const: true
                     data:
-                      $ref: '#/components/schemas/PaginaBusca'
+                      type: array
+                      maxItems: 5
+                      items:
+                        $ref: '#/components/schemas/ResultadoBusca'
               example:
                 success: true
                 data:
-                  itens:
-                  - id: 5c2d9e1a-0f3b-4b7e-9a6d-1e2f3a4b5c6d
-                    titulo: Licença de backup
-                    subtitulo: BKP-001 · LICENCA · MENSAL
-                    rota: /produtos/itens/5c2d9e1a-0f3b-4b7e-9a6d-1e2f3a4b5c6d
-                  pagina: 0
-                  tamanho: 5
-                  total: 1
+                - id: 5c2d9e1a-0f3b-4b7e-9a6d-1e2f3a4b5c6d
+                  titulo: Licença de backup
+                  subtitulo: BKP-001 · LICENCA · MENSAL
+                  rota: /itens/5c2d9e1a-0f3b-4b7e-9a6d-1e2f3a4b5c6d
                 message: null
                 errors: []
         '400':
@@ -1043,14 +1027,22 @@ components:
                 type: string
     Dinheiro:
       type:
-      - string
+      - number
       - 'null'
-      pattern: ^-?\d{1,13}(?:\.\d{1,2})?$
+      multipleOf: 0.01
+      minimum: -9999999999999.99
+      maximum: 9999999999999.99
+      description: Número JSON em reais, com até 2 casas decimais. null indica valor não cadastrado; zero é um valor
+        informado. Excesso de casas retorna 400/PRECISAO_EXCEDIDA, sem arredondamento.
     NumeroQuatroCasas:
       type:
-      - string
+      - number
       - 'null'
-      pattern: ^-?\d{1,11}(?:\.\d{1,4})?$
+      multipleOf: 0.0001
+      minimum: -99999999999.9999
+      maximum: 99999999999.9999
+      description: Número JSON com até 4 casas decimais. Percentuais em pontos percentuais (12.5 representa 12,5%);
+        fatores são multiplicadores. Excesso de casas retorna 400/PRECISAO_EXCEDIDA, sem arredondamento.
     Unidade:
       type: string
       enum:
@@ -1259,7 +1251,8 @@ components:
           type: string
         rota:
           type: string
-          pattern: ^/produtos/itens/[0-9a-fA-F-]+$
+          pattern: ^/itens/[0-9a-fA-F-]+$
+          description: Relativa ao módulo; a casca acrescenta /app/produtos antes desta rota.
     Precificacao:
       type: object
       additionalProperties: false
@@ -1332,7 +1325,7 @@ components:
               type: 'null'
         - properties:
             markupValor:
-              type: string
+              type: number
             markupTipo:
               type: string
       - oneOf:
@@ -1343,7 +1336,7 @@ components:
               type: 'null'
         - properties:
             impostosValor:
-              type: string
+              type: number
             impostosTipo:
               type: string
       - if:
@@ -1362,7 +1355,7 @@ components:
               type: 'null'
         - properties:
             comissaoValor:
-              type: string
+              type: number
             comissaoTipo:
               type: string
       - if:
@@ -1518,30 +1511,6 @@ components:
           type: integer
           minimum: 1
           maximum: 100
-        total:
-          type: integer
-          minimum: 0
-    PaginaBusca:
-      type: object
-      additionalProperties: false
-      required:
-      - itens
-      - pagina
-      - tamanho
-      - total
-      properties:
-        itens:
-          type: array
-          maxItems: 5
-          items:
-            $ref: '#/components/schemas/ResultadoBusca'
-        pagina:
-          type: integer
-          minimum: 0
-        tamanho:
-          type: integer
-          minimum: 1
-          maximum: 5
         total:
           type: integer
           minimum: 0
