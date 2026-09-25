@@ -7,7 +7,7 @@ Regras que todo módulo precisa cumprir para funcionar dentro da plataforma: com
 | | |
 |---|---|
 | Versão | 0.7 |
-| Situação | v0.5 ratificada por 4 de 8 · v0.6 e v0.7 em prazo de objeção |
+| Situação | Em vigor desde 25 de setembro de 2026, sem objeção no prazo |
 | Vinculado a | 8 grupos |
 | Fonte de requisitos | Prompt Mestre, seções 84–92 |
 
@@ -17,7 +17,7 @@ Regras que todo módulo precisa cumprir para funcionar dentro da plataforma: com
 >
 > ✓ CRM · ✓ Financeiro · ✓ Produtos e Serviços · ✓ Plataforma<br> ⋯ Contratos · ⋯ Chamados · ⋯ Marketing · ⋯ Landing Pages
 
-> **O que a versão 0.7 acrescenta · vale se não houver objeção até o prazo anunciado no grupo de gestores**
+> **O que as versões 0.6 e 0.7 acrescentam · em vigor desde 25 de setembro, sem objeção no prazo**
 >
 > - **Busca global**: formato único de resposta, com no máximo cinco resultados e rota relativa ao módulo — §8.6.
 > - **Valores monetários e percentuais** num formato só, sem arredondamento silencioso — §8.7.
@@ -30,7 +30,7 @@ Regras que todo módulo precisa cumprir para funcionar dentro da plataforma: com
 > - **Sessão recebida antes de a tela existir**: o módulo ouve as mensagens da casca antes de enviar `modulo:pronto` e guarda a sessão fora dos componentes. O `App.tsx` do módulo de exemplo perdia a sessão nessa corrida e foi corrigido em 22/09 — quem o copiou antes precisa da correção — §12.2.
 > - **O gateway envia `X-Frame-Options: SAMEORIGIN`**; o front do módulo não pode responder `DENY` nem `frame-ancestors 'none'`, ou não abre dentro da casca — §12.8.
 
-> **O que a versão 0.6 acrescenta · precisa de nova ratificação dos oito grupos**
+> **O que a versão 0.6 acrescentou · também em vigor desde 25 de setembro**
 >
 > - **Mensageria com RabbitMQ** para avisar fatos entre módulos, com formato único de evento e consumidor idempotente — §9.7.
 > - ***View* pública somente-leitura** para relatórios e agregações; API continua obrigatória onde há usuário, permissão ou regra — §9.8.
@@ -1210,7 +1210,7 @@ Pontos em aberto que afetam mais de um grupo. Estão listados aqui de propósito
 
 | Pendência | Afeta | Situação |
 |---|---|---|
-| Ratificação das versões 0.6 e 0.7 | Todos | Pelo *pull request* da versão 0.7 no `infra-integrador-2026`, com prazo para objeções (seção 13.2). Vale também para os quatro grupos que não se manifestaram sobre a 0.5. |
+| ~~Ratificação das versões 0.6 e 0.7~~ | Todos | **Resolvida.** O prazo de objeção anunciado no grupo de gestores venceu em 24/09 sem objeção, e a versão 0.7 entrou na `main` em 25/09 (seção 13.2). Vale também para os quatro grupos que não se manifestaram sobre a 0.5. |
 | Equipes no token (5.4) | CRM e quem filtrar por equipe | Proposta da plataforma, a confirmar com o CRM. |
 | Prazo das listas de permissões, OpenAPI e AsyncAPI | Todos | A combinar no grupo de gestores. |
 | Provedor de e-mail fora do ambiente de desenvolvimento | Plataforma, Financeiro, Marketing | A plataforma envia o e-mail de sistema, pedido por `identity.email.enviar`; o provedor SMTP de *staging* e produção depende dos professores. |
@@ -1253,6 +1253,6 @@ Assim o Grupo 3 constrói relatórios sem depender de sete serviços estarem no 
 
 ---
 
-Contrato de Integração dos Módulos · versão 0.7 · 21 de setembro de 2026 · versão 0.5 ratificada por 4 de 8 grupos  
+Contrato de Integração dos Módulos · versão 0.7 · em vigor desde 25 de setembro de 2026  
 Grupo 2 — Plataforma e Controle de Usuários · Projeto Integrador 2026  
 Requisitos derivados do Prompt Mestre do cliente, seções 3, 79, 84 a 92, 105 e 116.
