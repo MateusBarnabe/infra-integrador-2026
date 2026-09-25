@@ -28,8 +28,10 @@ for (const arquivo of arquivosModulos) {
   const nomeArquivo = `modulos/${arquivo}`;
   const codigoArquivo = basename(arquivo, ".json");
 
-  if (registro.codigo !== codigoArquivo) {
-    erro(nomeArquivo, `o campo codigo deve ser "${codigoArquivo}" para bater com o nome do arquivo`);
+  if (!registro.codigo) {
+    erro(nomeArquivo, `o campo codigo é obrigatório e deve ser "${codigoArquivo}"`);
+  } else if (registro.codigo !== codigoArquivo) {
+    erro(nomeArquivo, `o nome do arquivo deveria ser modulos/${registro.codigo}.json para bater com o campo codigo`);
   }
 
   if (registro.codigo) {
@@ -55,8 +57,10 @@ for (const arquivo of arquivosPermissoes) {
   const nomeArquivo = `permissoes/${arquivo}`;
   const moduloArquivo = basename(arquivo, ".yaml");
 
-  if (lista.modulo !== moduloArquivo) {
-    erro(nomeArquivo, `o campo modulo deve ser "${moduloArquivo}" para bater com o nome do arquivo`);
+  if (!lista.modulo) {
+    erro(nomeArquivo, `o campo modulo é obrigatório e deve ser "${moduloArquivo}"`);
+  } else if (lista.modulo !== moduloArquivo) {
+    erro(nomeArquivo, `o nome do arquivo deveria ser permissoes/${lista.modulo}.yaml para bater com o campo modulo`);
   }
 
   const modulo = lista.modulo;
@@ -82,6 +86,17 @@ for (const { arquivo, registro } of registros) {
     if (permissao && !permissoesPorCodigo.has(permissao)) {
       erro(arquivo, `a permissão ${permissao} não existe em permissoes/`);
     }
+  }
+}
+
+const arquivosPorOrdemMenu = new Map();
+for (const { arquivo, registro } of registros) {
+  if (registro.ordemMenu === undefined) continue;
+  const anterior = arquivosPorOrdemMenu.get(registro.ordemMenu);
+  if (anterior) {
+    erro(arquivo, `ordemMenu ${registro.ordemMenu} já está em uso por ${anterior}`);
+  } else {
+    arquivosPorOrdemMenu.set(registro.ordemMenu, arquivo);
   }
 }
 
