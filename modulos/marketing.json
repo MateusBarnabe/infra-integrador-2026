@@ -6,7 +6,7 @@
   "urlFrontend": "/modulos/marketing/",
   "prefixoApi": "/api/marketing",
   "permissaoMenu": "marketing.acessar",
-  "ordemMenu": 60,
+  "ordemMenu": 50,
   "healthcheck": "/api/marketing/health",
   "itensSubmenu": [
     { "rota": "/painel",        "nome": "Painel",        "permissao": "marketing.dashboard.ver" },
@@ -14,4 +14,5 @@
     { "rota": "/formularios",   "nome": "Formulários",   "permissao": "marketing.formulario.ver" },
     { "rota": "/configuracoes", "nome": "Configurações", "permissao": "marketing.configuracao.ver" }
   ]
+  
 }

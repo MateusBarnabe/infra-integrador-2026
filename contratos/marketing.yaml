@@ -1,6 +1,6 @@
 openapi: 3.1.0
 info:
-  title: Marketing e Automações
+  title: Marketing e Automações de Marketing
   version: 0.2.0
   summary: Contrato do módulo Marketing — o que a casca e os outros módulos consomem.
   description: |
@@ -110,12 +110,41 @@ paths:
                   publicadoEm: '2026-09-20T18:00:00Z'
                   campos:
                     - { id: a1b2c3d4-0000-4000-8000-000000000001, chave: nome, label: Nome, tipo: texto, obrigatorio: true, fixo: true, ordem: 1, opcoes: null }
-                    - { id: c1a2b3c4-0000-4000-8000-000000000005, chave: cargo, label: Qual o seu cargo?, tipo: lista, obrigatorio: true, fixo: false, ordem: 5, opcoes: [Decisor, Sócio, Gerente, Analista, Operacional, Outros] }
+                    - { id: c1a2b3c4-0000-4000-8000-000000000005, chave: cargo, label: 'Qual o seu cargo?', tipo: lista, obrigatorio: true, fixo: false, ordem: 5, opcoes: [Decisor, Sócio, Gerente, Analista, Operacional, Outros] }
                 message: null
                 errors: []
         '401': { $ref: '#/components/responses/NaoAutenticado' }
         '403': { $ref: '#/components/responses/SemPermissao' }
         '404': { $ref: '#/components/responses/NaoEncontrado' }
+
+  /api/marketing/leads/resumo:
+    get:
+      tags: [lead]
+      operationId: obterResumosLead
+      summary: Resumo de vários leads de uma vez
+      description: Exige `marketing.lead.ver_resumo`. Máximo 100 ids por chamada (Contrato §9.4).
+      parameters:
+        - name: ids
+          in: query
+          required: true
+          schema: { type: array, items: { type: string, format: uuid }, maxItems: 100 }
+          style: form
+          explode: false
+      responses:
+        '200':
+          description: Resumos encontrados
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/ResumoLead' }
+        '400': { $ref: '#/components/responses/DadosInvalidos' }
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+        '403': { $ref: '#/components/responses/SemPermissao' }
 
   /api/marketing/leads/{id}/resumo:
     get:
@@ -233,12 +262,12 @@ components:
 
     ResultadoBusca:
       type: object
-      required: [id, titulo, rota]
+      required: [id, titulo, subtitulo, rota]
       description: Formato único de busca global do sistema (Contrato §8.6).
       properties:
         id: { type: string, format: uuid }
         titulo: { type: string, description: 'Nome do lead, ou o e-mail quando não há nome' }
-        subtitulo: { type: [string, 'null'], description: Etapa e origem do lead }
+        subtitulo: { type: string, description: Etapa e origem do lead; string vazia quando não há etapa }
         rota: { type: string, description: Relativa ao urlFrontend do módulo }
 
     FormularioVersao:
