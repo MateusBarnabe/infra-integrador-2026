@@ -72,6 +72,10 @@ permissoes:
     descricao: Ver lista de prospecção
     perfisPadrao: [ADMINISTRADOR, GESTOR, VENDEDOR, PRE_VENDAS]
 
+  - codigo: crm.prospeccao.registrar
+    descricao: Registrar e excluir tentativas de contato na prospecção
+    perfisPadrao: [ADMINISTRADOR, GESTOR, VENDEDOR, PRE_VENDAS]
+
   - codigo: crm.relatorio.exportar
     descricao: Exportar os dashboards comerciais do próprio CRM em PDF, XLSX ou CSV — não é o motor de relatórios do Grupo 3 (Mapa de Fronteiras §5)
     perfisPadrao: [ADMINISTRADOR, GESTOR]
