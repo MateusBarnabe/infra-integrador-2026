@@ -1,12 +1,12 @@
 openapi: 3.1.0
 info:
   title: CRM
-  version: 0.4.0
+  version: 0.5.0
   summary: Contrato do módulo CRM — dono de empresas, contatos e unidades para todo o sistema.
   description: |
     Cobre os endpoints de Empresas e Contatos fechados no Contrato de Integração §10, já
     ajustados após a revisão da issue #3; a partir da 0.3.0, Funil e Oportunidades; a partir
-    da 0.4.0, Atividades, Tarefas, Reuniões e Objeções.
+    da 0.4.0, Atividades, Tarefas, Reuniões e Objeções; a partir da 0.5.0, Prospecção.
     Os eventos publicados estão em crm.asyncapi.yaml.
     Propostas não faz parte deste contrato — é escopo do Grupo 5 (Contratos e Documentos).
   license:
@@ -26,6 +26,8 @@ tags:
     description: Negociações em andamento, ganhas e perdidas
   - name: atividades
     description: Atividades, tarefas, reuniões e objeções ligadas às oportunidades
+  - name: prospeccao
+    description: Lista de prospecção, tentativas de contato e conversão de empresa em oportunidade
   - name: saude
     description: Estado do serviço
 
@@ -47,6 +49,7 @@ paths:
         - $ref: '#/components/parameters/Tamanho'
         - name: segmento
           in: query
+          description: Compara sem diferenciar maiúsculas
           schema: { type: string }
         - name: status
           in: query
@@ -67,6 +70,7 @@ paths:
                               itens:
                                 type: array
                                 items: { $ref: '#/components/schemas/Empresa' }
+        '400': { $ref: '#/components/responses/DadosInvalidos' }
         '401': { $ref: '#/components/responses/NaoAutenticado' }
         '403': { $ref: '#/components/responses/SemPermissao' }
     post:
@@ -1437,6 +1441,173 @@ paths:
         '403': { $ref: '#/components/responses/SemPermissao' }
         '404': { $ref: '#/components/responses/NaoEncontrado' }
 
+  /api/crm/prospeccao:
+    get:
+      tags: [prospeccao]
+      operationId: listaDeProspeccao
+      summary: Empresas em lead ou prospect, com as tentativas de contato (RF-CRM-08)
+      description: |
+        Exige `crm.prospeccao.ver`. É uma consulta sobre as empresas: só entram as que estão em
+        `lead` ou `prospect`, em ordem de razão social. Cada item traz o total de tentativas e a
+        mais recente. Segmento, cidade e porte comparam sem diferenciar maiúsculas.
+      parameters:
+        - $ref: '#/components/parameters/Pagina'
+        - $ref: '#/components/parameters/Tamanho'
+        - name: segmento
+          in: query
+          schema: { type: string }
+        - name: cidade
+          in: query
+          schema: { type: string }
+        - name: porte
+          in: query
+          schema: { type: string }
+        - name: vendedorId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: status
+          in: query
+          description: Sem ele, lead e prospect; outro valor responde 400
+          schema: { type: string, enum: [lead, prospect] }
+      responses:
+        '200':
+          description: Página da lista de prospecção
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - properties:
+                      data:
+                        allOf:
+                          - $ref: '#/components/schemas/Pagina'
+                          - properties:
+                              itens:
+                                type: array
+                                items: { $ref: '#/components/schemas/ItemProspeccao' }
+        '400': { $ref: '#/components/responses/DadosInvalidos' }
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+        '403': { $ref: '#/components/responses/SemPermissao' }
+
+  /api/crm/empresas/{id}/tentativas:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [prospeccao]
+      operationId: tentativasDaEmpresa
+      summary: Histórico de tentativas de contato com a empresa, mais recente primeiro
+      description: Exige `crm.prospeccao.ver`.
+      parameters:
+        - $ref: '#/components/parameters/Pagina'
+        - $ref: '#/components/parameters/Tamanho'
+      responses:
+        '200':
+          description: Página de tentativas
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - properties:
+                      data:
+                        allOf:
+                          - $ref: '#/components/schemas/Pagina'
+                          - properties:
+                              itens:
+                                type: array
+                                items: { $ref: '#/components/schemas/Tentativa' }
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+        '403': { $ref: '#/components/responses/SemPermissao' }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+    post:
+      tags: [prospeccao]
+      operationId: registrarTentativa
+      summary: Registrar uma tentativa de contato já feita (RF-CRM-09)
+      description: |
+        Exige `crm.prospeccao.registrar`. O contato, quando informado, precisa ser da empresa
+        (400 `CONTATO_DE_OUTRA_EMPRESA` em `contatoId`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NovaTentativa' }
+      responses:
+        '201':
+          description: Tentativa registrada
+          headers:
+            Location:
+              schema: { type: string, example: /api/crm/tentativas/7c8d9e0f-1a2b-4c3d-8e4f-5a6b7c8d9e0f }
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - properties:
+                      data: { $ref: '#/components/schemas/Tentativa' }
+        '400': { $ref: '#/components/responses/DadosInvalidos' }
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+        '403': { $ref: '#/components/responses/SemPermissao' }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+
+  /api/crm/tentativas/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    delete:
+      tags: [prospeccao]
+      operationId: excluirTentativa
+      summary: Excluir tentativa registrada por engano (soft delete)
+      description: |
+        Exige `crm.prospeccao.registrar`. Quem registrou a tentativa (`responsavelId`) exclui a
+        própria; excluir a de outra pessoa exige também `crm.oportunidade.editar` (403 sem ela),
+        para preservar o histórico que o gestor usa no acompanhamento da prospecção.
+      responses:
+        '200':
+          description: Tentativa excluída
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Envelope' }
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+        '403': { $ref: '#/components/responses/SemPermissao' }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+
+  /api/crm/empresas/{id}/converter:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [prospeccao]
+      operationId: converterEmOportunidade
+      summary: Converter a empresa em prospecção numa oportunidade
+      description: |
+        Exige `crm.oportunidade.criar`. Cria a oportunidade com tipo `nova`, `origem: prospeccao`
+        e `origemModuloId` igual ao id da empresa, seguindo as mesmas regras de
+        `POST /api/crm/oportunidades` (primeira etapa do funil padrão, próximo passo e evento
+        `crm.oportunidade.criada`). A empresa em `lead` passa a `prospect`. Empresa em
+        `cliente_ativo` ou `inativo` responde 409 (`EMPRESA_FORA_DA_PROSPECCAO`): para cliente
+        ativo, o caminho é uma oportunidade de upsell ou cross-sell.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ConverterEmpresa' }
+      responses:
+        '201':
+          description: Oportunidade criada a partir da empresa
+          headers:
+            Location:
+              schema: { type: string, example: /api/crm/oportunidades/3e4f5a6b-7c8d-4e9f-8a0b-1c2d3e4f5a6b }
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - properties:
+                      data: { $ref: '#/components/schemas/Oportunidade' }
+        '400': { $ref: '#/components/responses/DadosInvalidos' }
+        '401': { $ref: '#/components/responses/NaoAutenticado' }
+        '403': { $ref: '#/components/responses/SemPermissao' }
+        '404': { $ref: '#/components/responses/NaoEncontrado' }
+        '409': { $ref: '#/components/responses/Conflito' }
+
   /api/crm/health:
     get:
       tags: [saude]
@@ -1901,3 +2072,64 @@ components:
       properties:
         motivo: { type: string, example: preço acima do orçamento }
         total: { type: integer, minimum: 1 }
+
+    NovaTentativa:
+      type: object
+      required: [canal, resultado]
+      properties:
+        canal: { type: string, enum: [telefone, email, whatsapp, linkedin, visita] }
+        resultado: { type: string, enum: [sem_resposta, contato_realizado, retornar_depois, sem_interesse, numero_invalido] }
+        contatoId: { type: [string, 'null'], format: uuid }
+        observacao: { type: [string, 'null'], maxLength: 1000 }
+        realizadaEm: { type: [string, 'null'], format: date-time, description: 'Sem ela, o momento do registro. Data futura responde 400 em realizadaEm: o que ainda vai acontecer é tarefa' }
+
+    Tentativa:
+      type: object
+      required: [id, empresaId, canal, resultado, realizadaEm]
+      properties:
+        id: { type: string, format: uuid }
+        empresaId: { type: string, format: uuid }
+        contatoId: { type: [string, 'null'], format: uuid }
+        canal: { type: string, enum: [telefone, email, whatsapp, linkedin, visita] }
+        resultado: { type: string, enum: [sem_resposta, contato_realizado, retornar_depois, sem_interesse, numero_invalido] }
+        observacao: { type: [string, 'null'] }
+        realizadaEm: { type: string, format: date-time }
+        responsavelId: { type: [string, 'null'], format: uuid, description: Quem registrou }
+
+    ItemProspeccao:
+      type: object
+      required: [id, razaoSocial, statusComercial, totalTentativas]
+      properties:
+        id: { type: string, format: uuid }
+        razaoSocial: { type: string }
+        nomeFantasia: { type: [string, 'null'] }
+        cnpj: { type: [string, 'null'] }
+        segmento: { type: [string, 'null'] }
+        porte: { type: [string, 'null'] }
+        cidade: { type: [string, 'null'] }
+        estado: { type: [string, 'null'] }
+        vendedorResponsavel: { type: [string, 'null'], format: uuid }
+        statusComercial: { type: string, enum: [lead, prospect] }
+        totalTentativas: { type: integer, minimum: 0 }
+        ultimaTentativa:
+          oneOf:
+            - $ref: '#/components/schemas/Tentativa'
+            - type: 'null'
+
+    ConverterEmpresa:
+      type: object
+      required: [titulo]
+      description: |
+        Mesmos campos comerciais de NovaOportunidade, sem empresa, etapa e tipo, que a conversão
+        define. Próximo passo e data são obrigatórios quando quem converte é um usuário.
+      properties:
+        titulo: { type: string, minLength: 1, maxLength: 255 }
+        contatoId: { type: [string, 'null'], format: uuid }
+        produtoId: { type: [string, 'null'], format: uuid }
+        valorImplantacao: { type: [number, 'null'], minimum: 0, multipleOf: 0.01, description: 'Reais, até 2 casas (§8.7); mais casas responde 400 PRECISAO_EXCEDIDA' }
+        valorMrr: { type: [number, 'null'], minimum: 0, multipleOf: 0.01, description: 'Reais, até 2 casas (§8.7); mais casas responde 400 PRECISAO_EXCEDIDA' }
+        probabilidade: { type: [integer, 'null'], minimum: 0, maximum: 100 }
+        dataPrevistaFechamento: { type: [string, 'null'], format: date }
+        proximoPasso: { type: [string, 'null'], maxLength: 255 }
+        dataProximoPasso: { type: [string, 'null'], format: date }
+        responsavelId: { type: [string, 'null'], format: uuid }
