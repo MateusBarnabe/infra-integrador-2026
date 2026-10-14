@@ -1556,7 +1556,10 @@ paths:
       tags: [prospeccao]
       operationId: excluirTentativa
       summary: Excluir tentativa registrada por engano (soft delete)
-      description: Exige `crm.prospeccao.registrar`.
+      description: |
+        Exige `crm.prospeccao.registrar`. Quem registrou a tentativa (`responsavelId`) exclui a
+        própria; excluir a de outra pessoa exige também `crm.oportunidade.editar` (403 sem ela),
+        para preservar o histórico que o gestor usa no acompanhamento da prospecção.
       responses:
         '200':
           description: Tentativa excluída

@@ -73,7 +73,7 @@ permissoes:
     perfisPadrao: [ADMINISTRADOR, GESTOR, VENDEDOR, PRE_VENDAS]
 
   - codigo: crm.prospeccao.registrar
-    descricao: Registrar e excluir tentativas de contato na prospecção
+    descricao: Registrar tentativas de contato na prospecção e excluir as próprias (as de outra pessoa exigem também crm.oportunidade.editar)
     perfisPadrao: [ADMINISTRADOR, GESTOR, VENDEDOR, PRE_VENDAS]
 
   - codigo: crm.relatorio.exportar
